@@ -272,6 +272,19 @@ def viewable_dashboard_id(*, team_id: int, dashboard_id: int, user_access_contro
     return dashboard.id
 
 
+def viewable_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl
+) -> set[int]:
+    """The ids among these that name a dashboard of this team the user may view, from one query."""
+    dashboards = list(Dashboard.objects.filter(team_id=team_id, pk__in=dashboard_ids))
+    user_access_control.preload_object_access_controls(dashboards)
+    return {
+        dashboard.id
+        for dashboard in dashboards
+        if user_access_control.check_access_level_for_object(dashboard, "viewer")
+    }
+
+
 def live_tile_insight_ids(dashboard_id: int) -> list[int]:
     """Ids of the insights on this dashboard's live tiles, leaving out deleted insights."""
     # The caller resolved this id through a team-scoped dashboard lookup first.
