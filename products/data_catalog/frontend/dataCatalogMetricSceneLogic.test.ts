@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -275,6 +277,18 @@ describe('dataCatalogMetricSceneLogic', () => {
         logic.actions.renameMetric('wau')
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams.tab).toBe('data-quality')
+    })
+
+    it.each([
+        [true, 'usage'],
+        [false, 'definition'],
+    ])('opens the usage tab from a link only when its flag is on (flag on: %s)', async (flagOn, expectedTab) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_CATALOG_USAGE], {
+            [FEATURE_FLAGS.DATA_CATALOG_USAGE]: flagOn,
+        })
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'usage' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toBe(expectedTab)
     })
 
     it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
