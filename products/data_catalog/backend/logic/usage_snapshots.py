@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import posthoganalytics
@@ -20,7 +21,13 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from ..facade.contracts import MetricUsage, UsageSnapshotDetail, UsageSnapshotPayload, UsageSnapshotSummary
+from ..facade.contracts import (
+    MetricUsage,
+    TopicDefinition,
+    UsageSnapshotDetail,
+    UsageSnapshotPayload,
+    UsageSnapshotSummary,
+)
 from ..facade.enums import USAGE_FLAG_KEY, UsageSnapshotStatus
 from ..models import UsageSnapshot
 from .metrics import _denied_tables, metrics_visible_to_user
@@ -119,6 +126,19 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
         metric_runs=None
         if payload.metric_runs is None
         else [counts for counts in payload.metric_runs if counts.metric_id in reader.visible_metric_ids],
+        # Topic titles come from every member's questions and carry no source tables to check, so a reader
+        # with any denied table gets none.
+        topics=None if payload.topics is None else ([] if reader.denied_tables else payload.topics),
+        topic_definitions=None
+        if payload.topic_definitions is None
+        else ([] if reader.denied_tables else payload.topic_definitions),
+        table_sources=None
+        if payload.table_sources is None
+        else [
+            source
+            for source in payload.table_sources
+            if not references_denied_table([source.name], set(reader.denied_tables))
+        ],
         adjusted_runs=None
         if payload.adjusted_runs is None
         else [
@@ -179,6 +199,10 @@ def usage_snapshot_window(team_id: int, snapshot_id: UUID) -> UsageWindow:
     return UsageWindow(start=row.window_start, end=row.window_end)
 
 
+def read_payload(team_id: int, snapshot_id: UUID) -> UsageSnapshotPayload:
+    return payload_from_json(UsageSnapshot.objects.for_team(team_id).only("payload").get(id=snapshot_id).payload)
+
+
 def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> None:
     """Replace the named payload sections and keep every other section.
 
@@ -190,6 +214,29 @@ def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> 
         payload = dataclasses.replace(payload_from_json(row.payload), **sections)
         row.payload = payload_to_json(payload)
         row.save(update_fields=["payload"])
+
+
+def previous_topic_list(team_id: int, snapshot_id: UUID) -> list[TopicDefinition]:
+    """The topic list of the newest finished scan that has one, other than this one.
+
+    A scan before the stored list existed only has its topics with sessions, so those stand in for it.
+    """
+    row = (
+        UsageSnapshot.objects.for_team(team_id)
+        .filter(status=UsageSnapshotStatus.DONE.value)
+        .filter(Q(payload__topic_definitions__0__isnull=False) | Q(payload__topics__0__isnull=False))
+        .exclude(id=snapshot_id)
+        .order_by("-computed_at")
+        .values_list("payload__topic_definitions", "payload__topics")
+        .first()
+    )
+    if row is None:
+        return []
+    definitions, topics = row
+    return [
+        TopicDefinition(title=topic["title"], description=topic.get("description", ""))
+        for topic in definitions or topics or []
+    ]
 
 
 def _latest_done(team_id: int) -> UsageSnapshot | None:
