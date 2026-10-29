@@ -44,6 +44,8 @@ from ..logic.metrics import (
 )
 from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
+from ..logic.usage_judge import AIConsentMissing
+from ..logic.usage_scan import ScanAlreadyRunning, ScanCooldown, start_usage_scan
 from ..logic.usage_snapshots import (
     UsageReader,
     is_usage_enabled,
@@ -65,6 +67,7 @@ from .contracts import (
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
+    "AIConsentMissing",
     "BULK_SKIP_NOT_FOUND",
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
@@ -78,6 +81,8 @@ __all__ = [
     "MetricRead",
     "MetricUsage",
     "UsageReader",
+    "ScanAlreadyRunning",
+    "ScanCooldown",
     "UsageSnapshotDetail",
     "UsageSnapshotSummary",
     "metric_reads_for_ids",
@@ -116,6 +121,7 @@ __all__ = [
     "revoke_certification",
     "run_metric",
     "soft_delete_metric",
+    "start_usage_scan",
     "update_metric",
     "upsert_metric",
     "usage_reader",

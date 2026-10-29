@@ -34,7 +34,7 @@ from ..facade.contracts import (
     UsageSnapshotPayload,
     UsageSnapshotSummary,
 )
-from ..facade.enums import USAGE_FLAG_KEY, UsageSnapshotStatus
+from ..facade.enums import USAGE_FLAG_KEY, UsageSection, UsageSnapshotStatus
 from ..models import UsageSnapshot
 from .metrics import metrics_visible_to_user
 from .validation import table_names_as_written
@@ -48,6 +48,9 @@ STALE_COMPUTING = SCAN_EXECUTION_TIMEOUT + timedelta(hours=1)
 SCAN_STOPPED_MESSAGE = "The scan stopped before it finished."
 
 _PAYLOAD_ADAPTER = TypeAdapter(UsageSnapshotPayload)
+
+# The sections a metric's usage reads. A failure in another section does not change its numbers.
+_METRIC_SECTIONS = frozenset({UsageSection.METRIC_RUNS, UsageSection.ADJUSTED_RUNS})
 
 
 def payload_to_json(payload: UsageSnapshotPayload) -> dict[str, Any]:
@@ -76,7 +79,7 @@ def is_usage_enabled(user: User, team: Team) -> bool:
 
 def usage_snapshot_history(team_id: int) -> list[UsageSnapshotSummary]:
     rows = UsageSnapshot.objects.for_team(team_id).defer("payload").order_by("-created_at")[:USAGE_HISTORY_LIMIT]
-    return [_summary(row) for row in rows]
+    return [summary_of(row) for row in rows]
 
 
 @frozen
@@ -294,6 +297,7 @@ def metric_usage(team_id: int, metric_id: UUID, reader: UsageReader) -> MetricUs
         computed_at=row.computed_at,
         runs=runs,
         adjusted_runs=list(payload.adjusted_runs or []),
+        failed_sections=[failure for failure in payload.failed_sections if failure.section in _METRIC_SECTIONS],
     )
 
 
@@ -368,7 +372,7 @@ def _status_of(row: UsageSnapshot) -> tuple[UsageSnapshotStatus, str]:
     return UsageSnapshotStatus(row.status), row.error_message
 
 
-def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
+def summary_of(row: UsageSnapshot) -> UsageSnapshotSummary:
     status, error_message = _status_of(row)
     return UsageSnapshotSummary(
         id=row.id,
