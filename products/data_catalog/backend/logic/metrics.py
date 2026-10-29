@@ -696,10 +696,16 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
-    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+def metrics_visible_to_user(
+    team: Team, user: User, user_access_control: UserAccessControl, *, denied_tables: set[str] | None = None
+) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
+
+    Building the denied-table set loads the team's whole HogQL catalog, so a caller that already has it passes it in.
+    """
     metrics = metrics_for_team(team)
-    denied_tables = _denied_tables(team, user, user_access_control)
+    if denied_tables is None:
+        denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [

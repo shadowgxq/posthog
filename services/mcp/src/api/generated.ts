@@ -12889,8 +12889,8 @@ export namespace Schemas {
     export interface AdjustedRun {
       /** ID of the catalog metric the agent query re-derived. */
       metric_id: string;
-      /** adapted: the agent read the metric first, then changed it. missed: the agent listed the catalog but did not pick this metric. silent: the agent did not consult the catalog. */
-      fetch_outcome: string;
+      /** True when the agent read this metric in the catalog before it wrote the query. */
+      read_metric_first: boolean;
       /** serves: the query computes the metric. slice: it computes the metric with an extra filter. */
       relation: string;
       /** What the agent said it was trying to answer. */
@@ -50419,15 +50419,6 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
-    export interface FetchOutcomeCounts {
-      /** Agent queries that read the metric first, then changed it. */
-      adapted: number;
-      /** Agent queries that listed the catalog but re-derived the metric. */
-      missed: number;
-      /** Agent queries that re-derived the metric without the catalog. */
-      silent: number;
-    }
-
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -67892,10 +67883,6 @@ export namespace Schemas {
       direct_people: number;
       /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
       scout_runs: number;
-      /** Calculations of the metric's source insight on a dashboard. Cached views are not counted. */
-      source_insight_dashboard_runs: number;
-      /** Calculations of the metric's source insight outside a dashboard. Cached views are not counted. */
-      source_insight_insight_runs: number;
     }
 
     /**
@@ -67988,11 +67975,7 @@ export namespace Schemas {
       computed_at: string | null;
       /** Run counts. Null when the metric had no runs. */
       runs: MetricRunCounts | null;
-      /** Agent re-derivations of the metric, without scouts. */
-      adjusted: FetchOutcomeCounts;
-      /** Re-derivations of the metric by scouts. */
-      scout_adjusted: FetchOutcomeCounts;
-      /** The agent queries behind both counts. is_scout tells them apart. */
+      /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
       adjusted_runs: AdjustedRun[];
     }
 
@@ -116555,19 +116538,10 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /**
-         * Status of the matching metric at scan time: proposed or approved.
-         * @nullable
-         */
-      matched_metric_status: string | null;
       /** Distinct people who ran the measure, without scouts. */
       distinct_people: number;
-      /** Days in the window with at least one run, without scouts. */
-      active_days: number;
       /** Query runs of the measure, without scouts. */
       runs: number;
-      /** Query runs of the measure by scouts (scheduled agents). */
-      scout_runs: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
