@@ -1,11 +1,12 @@
 """Reads of the usage snapshots that the weekly scan writes."""
 
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 import posthoganalytics
@@ -154,6 +155,30 @@ def metric_usage(team_id: int, metric_id: UUID, reader: UsageReader) -> MetricUs
         runs=runs,
         adjusted_runs=list(payload.adjusted_runs or []),
     )
+
+
+@frozen
+class UsageWindow:
+    start: datetime
+    end: datetime
+
+
+def usage_snapshot_window(team_id: int, snapshot_id: UUID) -> UsageWindow:
+    row = UsageSnapshot.objects.for_team(team_id).only("window_start", "window_end").get(id=snapshot_id)
+    return UsageWindow(start=row.window_start, end=row.window_end)
+
+
+def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> None:
+    """Replace the named payload sections and keep every other section.
+
+    The row lock makes a section write from one scan step safe against a concurrent write from
+    another step on the same snapshot.
+    """
+    with transaction.atomic():
+        row = UsageSnapshot.objects.for_team(team_id).select_for_update().get(id=snapshot_id)
+        payload = dataclasses.replace(payload_from_json(row.payload), **sections)
+        row.payload = payload_to_json(payload)
+        row.save(update_fields=["payload"])
 
 
 def _latest_done(team_id: int) -> UsageSnapshot | None:
