@@ -1,3 +1,6 @@
+import re
+from dataclasses import dataclass, field
+
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
@@ -8,16 +11,38 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsScan
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 
-# Orgs that can't query posthog.flag_evaluations yet get this warning too, so the copy speaks of the move in the future.
-FLAG_CALLED_ON_EVENTS_WARNING = (
-    f"{FLAG_CALLED_EVENT} is moving from events to posthog.flag_evaluations. Once the move finishes "
-    "for your organization, this query will stop returning these events and you can query "
-    "posthog.flag_evaluations instead."
+# The copy names the two steps of the move as the troubleshooting doc that the "Learn more" link opens names them.
+FLAG_CALLED_ON_EVENTS_NOTICE = (
+    f"Once PostHog stops writing flag calls to the events table, this query reads {FLAG_CALLED_EVENT} events from "
+    "posthog.flag_evaluations, which keeps the last 90 days of flag calls. If part of the query can't read that "
+    "table, the query fails and says which part."
 )
+
+FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING = (
+    f"PostHog no longer writes {FLAG_CALLED_EVENT} events to the events table, so this query, which reads them from "
+    "there, returns only older ones. Query posthog.flag_evaluations to include recent flag calls."
+)
+
+
+def flag_called_fails_after_move_warning(reason: str) -> str:
+    return (
+        f"Once PostHog stops writing flag calls to the events table, this query fails because {reason}. Change that "
+        "part of the query, or query posthog.flag_evaluations directly."
+    )
+
+
+# Querying posthog.flag_evaluations directly does not help here, because that table lacks the field too.
+def flag_called_missing_field_warning(field_name: str) -> str:
+    return (
+        f"Once PostHog stops writing flag calls to the events table, this query fails because it reads {field_name}, "
+        "which posthog.flag_evaluations doesn't have. Change that part of the query."
+    )
+
 
 FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
     f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
@@ -109,7 +134,7 @@ def flag_called_on_events_warnings(
         finder.visit(resolve_types(clone_expr(node), context, dialect="clickhouse"))
     # A literal that a variable supplies has no span, and a notice without one marks the whole query.
     return [
-        HogQLNotice(message=FLAG_CALLED_ON_EVENTS_WARNING, start=literal.start, end=literal.end)
+        HogQLNotice(message=FLAG_CALLED_ON_EVENTS_NOTICE, start=literal.start, end=literal.end)
         for literal in finder.literals
         if literal.start is not None and literal.end is not None
     ]
@@ -131,3 +156,58 @@ def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[Liter
 def flag_called_spans_read_from_union(context: HogQLContext) -> set[LiteralSpan]:
     """The spans of the `$feature_flag_called` literals whose scan reads `events` and `flag_evaluations` together."""
     return {LiteralSpan(start=start, end=end) for start, end in context.flag_called_union_spans}
+
+
+_GROUP_ON_EVENTS = re.compile(r"goe_\d+")
+
+
+@dataclass(frozen=False)
+class _SelectFrame:
+    scan: EventsScan | None
+    ctes: frozenset[str]
+    warning: str | None
+    literals: list[LiteralSpan] = field(default_factory=list)
+
+
+class _MoveRefusalFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.frames: list[_SelectFrame] = []
+        self.refusals: dict[LiteralSpan, str] = {}
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        ctes = (self.frames[-1].ctes if self.frames else frozenset()).union(node.ctes or ())
+        scan = EventsScan.of(node, lambda: True, ctes)
+        reason = scan.shape_refusal(node) if scan else None
+        warning = flag_called_fails_after_move_warning(reason) if reason else None
+        self.frames.append(_SelectFrame(scan=scan, ctes=ctes, warning=warning))
+        super().visit_select_query(node)
+        frame = self.frames.pop()
+        if frame.warning is not None:
+            self.refusals.update(dict.fromkeys(frame.literals, frame.warning))
+
+    def visit_field(self, node: ast.Field) -> None:
+        frame = self.frames[-1] if self.frames else None
+        if frame is None or frame.scan is None or frame.warning is not None:
+            return
+        chain = frame.scan.column(node)
+        # flag_evaluations has goe_N.key and no other goe_N field.
+        if chain and len(chain) > 1 and _GROUP_ON_EVENTS.fullmatch(str(chain[0])) and chain[1] != "key":
+            frame.warning = flag_called_missing_field_warning(f"{chain[0]}.{chain[1]}")
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if self.frames and node.value == FLAG_CALLED_EVENT and node.start is not None and node.end is not None:
+            self.frames[-1].literals.append(LiteralSpan(start=node.start, end=node.end))
+
+
+def flag_called_move_refusals(node: ast.SelectQuery | ast.SelectSetQuery) -> dict[LiteralSpan, str]:
+    """The warning for each `$feature_flag_called` literal whose query fails once flag calls are only in
+    posthog.flag_evaluations, keyed by the literal's span.
+
+    It reads only the text of the unresolved query. It finds the shapes that the swap refuses and the `goe_N` fields
+    that flag_evaluations lacks. It misses a refusal that only resolution shows, such as a name that binds to another
+    column in flag_evaluations.
+    """
+    finder = _MoveRefusalFinder()
+    finder.visit(node)
+    return finder.refusals

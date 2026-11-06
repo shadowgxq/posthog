@@ -27,8 +27,11 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
-    FLAG_CALLED_ON_EVENTS_WARNING,
+    FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING,
+    FLAG_CALLED_ON_EVENTS_NOTICE,
     FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
+    flag_called_fails_after_move_warning,
+    flag_called_missing_field_warning,
 )
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
@@ -49,6 +52,7 @@ from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
+_GOE_PROPERTIES_FAILS = flag_called_missing_field_warning("goe_0.properties")
 _FLAG_CALLED_QUERY = "SELECT count() FROM events WHERE event = '$feature_flag_called'"
 _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY = (
     "SELECT count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'my-flag' "
@@ -430,6 +434,33 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ("aliased_table", "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called'", True, 1),
             ("aliased_column", "SELECT event AS name FROM events WHERE name = '$feature_flag_called'", True, 1),
             ("table_not_available", _FLAG_CALLED_QUERY, False, 1),
+            param(
+                "sampled_scan_fails_after_the_move",
+                "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                move_message=flag_called_fails_after_move_warning("it uses SAMPLE"),
+            ),
+            param(
+                "select_star_in_a_subquery_fails_after_the_move",
+                "SELECT count() FROM (SELECT * FROM events WHERE event = '$feature_flag_called')",
+                True,
+                1,
+                move_message=flag_called_fails_after_move_warning("it selects * or COLUMNS(...)"),
+            ),
+            param(
+                "event_time_group_properties_fail_after_the_move",
+                "SELECT goe_0.properties FROM events WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                move_message=_GOE_PROPERTIES_FAILS,
+            ),
+            param(
+                "group_key_reads_flag_evaluations_after_the_move",
+                "SELECT goe_0.key FROM events WHERE event = '$feature_flag_called'",
+                True,
+                1,
+            ),
             (
                 "flag_evaluations_table",
                 "SELECT count() FROM posthog.flag_evaluations WHERE event = '$feature_flag_called'",
@@ -518,6 +549,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 union_enabled=True,
+                move_message=_GOE_PROPERTIES_FAILS,
             ),
             param(
                 "mixed_scan_with_the_union_off",
@@ -525,6 +557,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+            param(
+                "mixed_scan_with_the_union_off_once_events_gets_no_flag_calls",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                move_message=FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING,
             ),
             param(
                 "read_from_flag_evaluations_without_coverage_once_events_gets_no_flag_calls",
@@ -541,6 +581,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                move_message=_GOE_PROPERTIES_FAILS,
             ),
             param(
                 "falls_back_when_a_name_binds_to_a_flag_evaluations_column",
@@ -567,6 +608,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         union_enabled: bool = False,
         expected_union_notices: int = 0,
         union_notice: str = FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
+        move_message: str = FLAG_CALLED_ON_EVENTS_NOTICE,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
@@ -600,7 +642,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata = self._select(query)
 
         self.assertTrue(metadata.isValid, metadata.errors)
-        warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
+        move_level = metadata.notices if move_message == FLAG_CALLED_ON_EVENTS_NOTICE else metadata.warnings
+        warnings = [w for w in move_level if w.message == move_message]
         notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE]
         union_notices = [n for n in metadata.notices if n.message == union_notice]
         literal_start = query.rindex("'$feature_flag_called'")
