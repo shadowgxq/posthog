@@ -1322,6 +1322,50 @@ export const TaskClientEnumApi = {
 } as const
 
 /**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `idle` - Idle
+ * * `done` - Done
+ */
+export type TaskStatusEnumApi = (typeof TaskStatusEnumApi)[keyof typeof TaskStatusEnumApi]
+
+export const TaskStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
+} as const
+
+/**
+ * * `turn_closed` - Turn closed
+ * * `user_stopped` - User stopped
+ * * `provision_failed` - Provision failed
+ * * `unexpected_failure` - Unexpected failure
+ * * `timed_out` - Timed out
+ * * `budget_spent` - Budget spent
+ * * `credit_spent` - Credit spent
+ * * `access_changed` - Access changed
+ * * `finished` - Finished
+ * * `closed` - Closed
+ * * `cancelled` - Cancelled
+ */
+export type TaskStatusReasonEnumApi = (typeof TaskStatusReasonEnumApi)[keyof typeof TaskStatusReasonEnumApi]
+
+export const TaskStatusReasonEnumApi = {
+    TurnClosed: 'turn_closed',
+    UserStopped: 'user_stopped',
+    ProvisionFailed: 'provision_failed',
+    UnexpectedFailure: 'unexpected_failure',
+    TimedOut: 'timed_out',
+    BudgetSpent: 'budget_spent',
+    CreditSpent: 'credit_spent',
+    AccessChanged: 'access_changed',
+    Finished: 'finished',
+    Closed: 'closed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1399,6 +1443,32 @@ export interface TaskDetailDTOApi {
      * @nullable
      */
     last_client_at?: string | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
 }
 
 /**
@@ -1481,6 +1551,32 @@ export interface TaskBasicApi {
      * @nullable
      */
     last_client_at?: string | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1949,6 +2045,32 @@ export interface TaskCreateResponseDTOApi {
      * @nullable
      */
     last_client_at?: string | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -2956,6 +3078,32 @@ export interface TaskRunResponseApi {
      * @nullable
      */
     last_client_at?: string | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -5273,6 +5421,27 @@ export interface TaskSummaryDTOApi {
     updated_at: string
     origin_product?: string
     latest_run?: TaskRunSummaryApi | null
+    /** Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
 }
 
 export interface PaginatedTaskSummaryDTOListApi {
@@ -5714,6 +5883,16 @@ export type TasksListParams = {
      * @minLength 1
      */
     status?: TasksListStatus
+    /**
+     * Filter tasks by their own status: queued, running, idle or done.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     * @minLength 1
+     */
+    task_status?: TasksListTaskStatus
 }
 
 export type TasksListArchived = (typeof TasksListArchived)[keyof typeof TasksListArchived]
@@ -5872,6 +6051,15 @@ export const TasksListStatus = {
     Completed: 'completed',
     Failed: 'failed',
     Cancelled: 'cancelled',
+} as const
+
+export type TasksListTaskStatus = (typeof TasksListTaskStatus)[keyof typeof TasksListTaskStatus]
+
+export const TasksListTaskStatus = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
 } as const
 
 export type TasksCommentsListParams = {
