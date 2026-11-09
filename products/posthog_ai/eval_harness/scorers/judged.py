@@ -13,6 +13,7 @@ from copy import copy
 from typing import Any
 
 from anthropic import AsyncAnthropic
+from anthropic.types import Message
 from autoevals.llm import LLMClassifier
 from autoevals.oai import LLMClient
 from braintrust import Score as BraintrustScore
@@ -65,7 +66,7 @@ def is_anthropic_model(model: str) -> bool:
     return model.startswith("claude-")
 
 
-def _anthropic_api_key() -> str | None:
+def anthropic_api_key() -> str | None:
     # The harness preflight already requires the gateway's Anthropic key, so a judge needs no new secret.
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LLM_GATEWAY_ANTHROPIC_API_KEY")
 
@@ -76,11 +77,14 @@ class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
     Models named ``claude-*`` go to the Anthropic API, everything else to the OpenAI API.
     """
 
+    anthropic_client: AsyncAnthropic | None = None
+
     async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> BraintrustScore:
-        if self.client is not None:
-            return await super()._run_eval_async(output, expected, **kwargs)
+        # The model decides the provider first, because TracedScorer sets an OpenAI ``client`` on every judge.
         if is_anthropic_model(self.model):
             return await self._run_anthropic_eval(output, expected, **kwargs)
+        if self.client is not None:
+            return await super()._run_eval_async(output, expected, **kwargs)
         async with AsyncOpenAI() as client:
             scorer = copy(self)
             scorer.client = LLMClient(
@@ -98,18 +102,26 @@ class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
         # output with the same schema Autoevals gives its select_choice tool.
         request = await self._request_args_async(output, expected, **kwargs)
         schema = {**self.classification_tools[0]["function"]["parameters"], "additionalProperties": False}
-        async with AsyncAnthropic(api_key=_anthropic_api_key()) as client:
-            response = await client.messages.create(
-                model=self.model,
-                max_tokens=_ANTHROPIC_JUDGE_MAX_TOKENS,
-                system=_ANTHROPIC_JUDGE_SYSTEM,
-                messages=request["messages"],
-                output_config={"format": {"type": "json_schema", "schema": schema}},
-            )
+        if self.anthropic_client is not None:
+            response = await self._create_judge_message(self.anthropic_client, request, schema)
+        else:
+            async with AsyncAnthropic(api_key=anthropic_api_key()) as client:
+                response = await self._create_judge_message(client, request, schema)
         if response.stop_reason == "refusal":
             raise ValueError("Anthropic judge refused the request")
         arguments = "".join(block.text for block in response.content if block.type == "text")
         return self._process_response({"tool_calls": [{"function": {"name": "select_choice", "arguments": arguments}}]})
+
+    async def _create_judge_message(
+        self, client: AsyncAnthropic, request: dict[str, Any], schema: dict[str, Any]
+    ) -> Message:
+        return await client.messages.create(
+            model=self.model,
+            max_tokens=_ANTHROPIC_JUDGE_MAX_TOKENS,
+            system=_ANTHROPIC_JUDGE_SYSTEM,
+            messages=request["messages"],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
 
 
 class JudgedScorer(LocalLLMClassifier):

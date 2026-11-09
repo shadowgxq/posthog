@@ -9,6 +9,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAIError
 
 from products.posthog_ai.eval_harness.scorers import judged
+from products.posthog_ai.eval_harness.scorers.tracing import TracedClients, TracedScorer
 
 
 @pytest.mark.asyncio
@@ -86,9 +87,10 @@ async def test_judges_use_direct_provider_without_braintrust_fallback(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("traced", [False, True])
 @pytest.mark.parametrize("judge_text,expected_score", [('{"reasons": "Grounded.", "choice": "yes"}', 1.0), ("", 0.0)])
 async def test_claude_judges_call_anthropic_without_a_forced_tool(
-    monkeypatch: pytest.MonkeyPatch, judge_text: str, expected_score: float
+    monkeypatch: pytest.MonkeyPatch, judge_text: str, expected_score: float, traced: bool
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
@@ -126,7 +128,14 @@ async def test_claude_judges_call_anthropic_without_a_forced_tool(
         choice_scores={"yes": 1.0, "no": 0.0},
         model="claude-opus-5-5",
     )
-    score = await scorer.eval_async("Synthetic answer")
+    if traced:
+        clients = TracedClients(
+            openai_llm_client=MagicMock(side_effect=AssertionError("OpenAI must not be called")),
+            anthropic_client=create_client(api_key="test-anthropic-key"),
+        )
+        score = await TracedScorer(scorer, clients, {}, {}).eval_async("Synthetic answer")
+    else:
+        score = await scorer.eval_async("Synthetic answer")
 
     assert score.score == expected_score
     assert len(requests) == 1

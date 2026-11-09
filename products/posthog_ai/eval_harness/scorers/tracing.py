@@ -22,6 +22,7 @@ from posthoganalytics import Posthog
 
 from ..trace_events import DISTINCT_ID, RunMetadata
 from .contract import AsyncOnlyScorerMixin, Scorer
+from .judged import anthropic_api_key
 
 # Context var for injecting per-scorer-invocation trace properties
 # into the traced OpenAI client's ``create()`` calls.
@@ -99,7 +100,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
     )
 
     # Traced Anthropic client
-    anthropic_client = AsyncAnthropic(posthog_client=posthog_client)
+    anthropic_client = AsyncAnthropic(posthog_client=posthog_client, api_key=anthropic_api_key())
     original_anthropic_create = anthropic_client.messages.create
 
     async def patched_anthropic_create(*args, **kwargs):
