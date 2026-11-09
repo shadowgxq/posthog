@@ -164,19 +164,29 @@ def teams_due_for_scan() -> list[int]:
     """Teams with at least one live metric, AI data processing approved, and the usage flag on, in id order."""
     if not usage_scans_supported():
         return []
+    flagged = teams_with_metrics_and_flag(USAGE_FLAG_KEY)
+    return list(
+        Team.objects.filter(id__in=flagged, organization__is_ai_data_processing_approved=True)
+        .order_by("id")
+        .values_list("id", flat=True)
+    )
+
+
+def teams_with_metrics_and_flag(flag_key: str) -> list[int]:
+    """Teams with at least one live metric and the flag on, in id order."""
     team_ids = sorted(set(Metric.objects.unscoped().filter(deleted=False).values_list("team_id", flat=True)))
-    teams = list(Team.objects.filter(id__in=team_ids, organization__is_ai_data_processing_approved=True).order_by("id"))
+    teams = list(Team.objects.filter(id__in=team_ids).order_by("id"))
     # Each check can be a remote flag evaluation, so a long serial loop would outlast the activity.
     with ThreadPoolExecutor(max_workers=_FLAG_CONCURRENCY) as pool:
-        flags = list(pool.map(_flag_on_for_team, teams))
+        flags = list(pool.map(lambda team: _flag_on_for_team(team, flag_key), teams))
     return [team.id for team, on in zip(teams, flags, strict=True) if on]
 
 
-def _flag_on_for_team(team: Team) -> bool:
+def _flag_on_for_team(team: Team, flag_key: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                USAGE_FLAG_KEY,
+                flag_key,
                 f"team_{team.id}",
                 groups={"organization": str(team.organization_id), "project": str(team.uuid)},
                 only_evaluate_locally=False,
@@ -184,5 +194,5 @@ def _flag_on_for_team(team: Team) -> bool:
             )
         )
     except Exception as error:
-        logger.warning("data_catalog_usage_flag_eval_failed", team_id=team.id, error=str(error))
+        logger.warning("data_catalog_usage_flag_eval_failed", team_id=team.id, flag_key=flag_key, error=str(error))
         return False
