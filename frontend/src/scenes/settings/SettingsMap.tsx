@@ -104,6 +104,7 @@ import { CloudImagesSettings } from './environment/CloudImagesSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DataDeletionRequests } from './environment/DataDeletion/DataDeletionRequests'
 import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -2250,6 +2251,26 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'trust policy',
                     'deploy',
                 ],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-data-deletion',
+        title: 'Data deletion',
+        flag: 'SELF_SERVICE_DATA_DELETION',
+        accessControl: {
+            resourceType: AccessControlResourceType.DataDeletion,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'data-deletion-requests',
+                title: 'Deletion requests',
+                description:
+                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
+                component: <DataDeletionRequests />,
+                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
             },
         ],
     },
