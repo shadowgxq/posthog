@@ -96,6 +96,11 @@ function takeGithubConnectMarker(teamId: number | null): boolean {
     }
 }
 
+// The agent route keeps GitHub setup outside the app layout, so its activation must not move the person into the inbox.
+function quickSetupRoute(): string {
+    return router.values.location.pathname.endsWith(urls.inboxActivate()) ? urls.inboxActivate() : urls.inbox()
+}
+
 /** A first-report state the progress card still shows. A created report shows as a row in the report list instead. */
 export interface FirstReportProgressState extends FirstReportStateApi {
     status: Exclude<FirstReportStateApi['status'], 'report_created'>
@@ -283,7 +288,12 @@ export interface inboxSetupLogicMeta {
         onboardingOrigin: (
             searchParams: Record<string, any>,
             draft: InboxOnboardingDraftApi,
-            savedState: InboxOnboardingStateApi | null
+            savedState: InboxOnboardingStateApi | null,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
         ) => NonNullable<InboxOnboardingDraftApi['onboarding_origin']>
         quickSetupGithubReturnUrl: (
             onboardingOrigin: NonNullable<
@@ -502,12 +512,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
     }),
     selectors({
         onboardingOrigin: [
-            (s) => [s.searchParams, s.draft, s.savedState],
+            (s) => [s.searchParams, s.draft, s.savedState, router.selectors.location],
             (
                 params: Record<string, any>,
                 draft: InboxOnboardingDraftApi,
-                state: InboxOnboardingStateApi | null
+                state: InboxOnboardingStateApi | null,
+                location: { pathname: string }
             ): NonNullable<InboxOnboardingDraftApi['onboarding_origin']> =>
+                location.pathname.endsWith(urls.inboxActivate()) ||
+                location.pathname.endsWith(urls.inboxActivateWithoutGithub()) ||
                 ['return', 'without_github', 'complete'].includes(params.agent_setup)
                     ? 'agent'
                     : (draft.onboarding_origin ?? state?.draft?.onboarding_origin ?? 'app'),
@@ -1092,7 +1105,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.startSetup()
                     return
                 }
-                router.actions.replace(urls.inbox(), {
+                router.actions.replace(quickSetupRoute(), {
                     onboarding_step: 'quick',
                     ...(values.searchParams.agent_setup === 'return' ||
                     values.searchParams.agent_setup === 'without_github'
@@ -1124,7 +1137,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     await saveDraft()
                     actions.setSavedState(await signalsOnboardingList(projectId))
                     if (values.completed) {
-                        router.actions.replace(urls.inbox(), completionParams)
+                        router.actions.replace(quickSetupRoute(), completionParams)
                         return
                     }
                     let scanners: ReplayScannerApi[] = []
@@ -1259,7 +1272,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
-                    router.actions.replace(urls.inbox(), completionParams)
+                    router.actions.replace(quickSetupRoute(), completionParams)
                 } catch (error) {
                     const message =
                         (error instanceof ApiError && error.detail?.trim()) ||
