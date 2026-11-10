@@ -19,4 +19,5 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
             "add_suppression",
             "bulk_add_suppressions",
             "remove_suppression",
+            "bulk_remove_suppressions",
         }
