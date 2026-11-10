@@ -3,7 +3,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { AccountExpansionTab } from './accountsExpansionLogic'
 
-export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays'
+export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays' | 'sql_query'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -19,13 +19,19 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays'
+          kind: 'properties' | 'session_replays' | 'sql_query'
           systemTabId?: never
       })
 
 export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
     { kind: 'properties', tagName: 'Properties', label: 'Properties' },
     { kind: 'session_replays', tagName: 'SessionReplays', label: 'Session replays' },
+    {
+        kind: 'sql_query',
+        tagName: 'SqlQuery',
+        label: 'SQL query',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE,
+    },
     { kind: 'notes', tagName: 'Notes', label: 'Notes', systemTabId: 'system:notes' },
     {
         kind: 'tasks',

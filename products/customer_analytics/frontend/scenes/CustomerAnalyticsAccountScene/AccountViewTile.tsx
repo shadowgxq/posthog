@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDialog, LemonMenu, type LemonMenuItems } from '@posthog/lemon-ui'
 
+import { getAccountSqlQuery } from '../../components/Accounts/accountSqlQuery'
 import { AccountViewComponent } from '../../components/Accounts/AccountViewComponent'
 import { getAccountViewComponentByKind } from '../../components/Accounts/accountViewComponents'
 import type { AccountViewApi } from '../../generated/api.schemas'
@@ -63,7 +64,9 @@ export function AccountViewTile({
                             title,
                             component.kind === 'properties'
                                 ? { propertiesConfig: component.config ?? {}, accountId }
-                                : undefined
+                                : component.kind === 'sql_query'
+                                  ? { sqlQuery: getAccountSqlQuery(component.config) }
+                                  : undefined
                         ),
                     disabledReason: menuDisabledReason,
                 },

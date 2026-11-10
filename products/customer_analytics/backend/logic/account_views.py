@@ -25,6 +25,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Conversations": "Conversations",
     "Meetings": "Meetings",
     "SessionReplays": "Session replays",
+    "SqlQuery": "SQL query",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
@@ -50,6 +51,8 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
     "known_emails",
 }
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
+# Matches the placeholder name the frontend passes in HogQLQuery.values.
+ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER = "{account_external_id}"
 
 
 class InvalidAccountViewContent(ValueError):
@@ -130,6 +133,17 @@ def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
     return []
 
 
+def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
+    if set(config) != {"query"}:
+        return ["SQL query config must contain only a query."]
+    query = config["query"]
+    if not isinstance(query, str) or not query.strip():
+        return ["SQL query config needs a query."]
+    if ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER not in query:
+        return [f"SQL query must filter by {ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER}."]
+    return []
+
+
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
     try:
         components = notebook_content.parse_markdown_component_document(content)
@@ -187,6 +201,8 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
                 errors.append(f"Component {index} config is too large.")
             elif component.tag_name == "Properties":
                 errors.extend(f"Component {index}: {error}" for error in validate_properties_widget_config(config))
+            elif component.tag_name == "SqlQuery":
+                errors.extend(f"Component {index}: {error}" for error in validate_sql_query_widget_config(config))
 
     if errors:
         raise InvalidAccountViewContent(errors)

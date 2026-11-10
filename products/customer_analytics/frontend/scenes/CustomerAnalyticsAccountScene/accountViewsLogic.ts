@@ -49,6 +49,7 @@ export interface AccountViewTileEditor {
     name: string
     propertiesConfig?: AccountViewTileConfig
     accountId?: string
+    sqlQuery?: string
 }
 
 const EMPTY_TABS_CONFIG: AccountDetailTabsConfigApi = {
@@ -144,15 +145,20 @@ export interface accountViewsLogicActions {
         viewId: string,
         nodeId: string,
         name: string,
-        properties?: {
-            accountId: string
-            propertiesConfig: AccountViewTileConfig
-        }
+        options?:
+            | {
+                  accountId: string
+                  propertiesConfig: AccountViewTileConfig
+              }
+            | {
+                  sqlQuery: string
+              }
     ) => {
         accountId?: string | undefined
         name: string
         nodeId: string
         propertiesConfig?: AccountViewTileConfig | undefined
+        sqlQuery?: string | undefined
         viewId: string
     }
     reloadEditor: () => {
@@ -242,6 +248,9 @@ export interface accountViewsLogicActions {
     }
     setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => {
         propertiesConfig: AccountViewTileConfig
+    }
+    setTileEditorSqlQuery: (sqlQuery: string) => {
+        sqlQuery: string
     }
     updateViewComponentConfig: (
         viewId: string,
@@ -351,9 +360,10 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             viewId: string,
             nodeId: string,
             name: string,
-            properties?: { propertiesConfig: AccountViewTileConfig; accountId: string }
-        ) => ({ viewId, nodeId, name, ...properties }),
+            options?: { propertiesConfig: AccountViewTileConfig; accountId: string } | { sqlQuery: string }
+        ) => ({ viewId, nodeId, name, ...options }),
         setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => ({ propertiesConfig }),
+        setTileEditorSqlQuery: (sqlQuery: string) => ({ sqlQuery }),
         closeTileEditor: true,
         setTileEditorName: (name: string) => ({ name }),
         saveTileEditor: true,
@@ -553,6 +563,8 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     state,
                     { propertiesConfig }: { propertiesConfig: AccountViewTileConfig }
                 ) => (state ? { ...state, propertiesConfig } : state),
+                setTileEditorSqlQuery: (state, { sqlQuery }: { sqlQuery: string }) =>
+                    state ? { ...state, sqlQuery } : state,
                 closeTileEditor: () => null,
                 setTileEditorName: (state, { name }: { name: string }) => (state ? { ...state, name } : state),
             },
@@ -751,6 +763,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                               ...component,
                               title: name,
                               ...(tileEditor.propertiesConfig ? { config: tileEditor.propertiesConfig } : {}),
+                              ...(tileEditor.sqlQuery !== undefined ? { config: { query: tileEditor.sqlQuery } } : {}),
                           }
                         : component
                 )
@@ -761,6 +774,11 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     if (tileEditor.propertiesConfig) {
                         posthog.capture(AccountsEvents.PropertiesWidgetConfigured, {
                             property_count: getAccountWidgetProperties(tileEditor.propertiesConfig).length,
+                        })
+                    }
+                    if (tileEditor.sqlQuery !== undefined) {
+                        posthog.capture(AccountsEvents.SqlQueryTileConfigured, {
+                            query_length: tileEditor.sqlQuery.length,
                         })
                     }
                     actions.closeTileEditor()

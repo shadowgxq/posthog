@@ -14,6 +14,7 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
+import { AccountSqlQueryTile } from './AccountSqlQueryTile'
 import { AccountUsersTable } from './AccountUsersTable'
 import type { AccountViewComponentKind } from './accountViewComponents'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
@@ -46,6 +47,8 @@ export function AccountViewComponent({
             return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
         case 'session_replays':
             return <AccountSessionReplays accountId={accountId} externalId={externalId} {...tileProps} />
+        case 'sql_query':
+            return <AccountSqlQueryTile externalId={externalId} instanceId={instanceId} initialConfig={initialConfig} />
         case 'notes':
             return <AccountNotesExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'tasks':
