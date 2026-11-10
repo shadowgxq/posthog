@@ -17,12 +17,15 @@ from products.data_catalog.backend.logic.agent_sessions import (
     fetch_candidate_chains,
     joined_sessions,
     link_chain,
+    merge_shared_conversations,
 )
 
 AT = datetime(2026, 11, 2, 9, tzinfo=UTC)
 
 
-def _piece(piece_id: str, minutes: float, *, client: str = "claude-code", note: str = "weekly signups") -> Piece:
+def _piece(
+    piece_id: str, minutes: float, *, client: str = "claude-code", note: str = "weekly signups", conversation: str = ""
+) -> Piece:
     at = AT + timedelta(minutes=minutes)
     return Piece(
         piece_id=piece_id,
@@ -30,6 +33,7 @@ def _piece(piece_id: str, minutes: float, *, client: str = "claude-code", note: 
         source="mcp",
         client=client,
         calls=(PieceCall(at=at, tool="execute-sql", note=note),),
+        conversation_id=conversation,
     )
 
 
@@ -92,6 +96,18 @@ class TestSessionStitching(SimpleTestCase):
 
         assert sorted(links.conversations) == expected
         assert links.failed_calls == failed
+
+    def test_pieces_with_one_conversation_id_join_past_the_gap_without_a_model_call(self) -> None:
+        chains = merge_shared_conversations(
+            [[_piece("a", 0, conversation="thread")], [_piece("c", 50)], [_piece("b", 45, conversation="thread")]]
+        )
+        client = _Client('{"labels": ["C1", "C2"]}')
+
+        links = async_to_sync(link_chain)(client, chains[0])  # type: ignore[arg-type]
+
+        assert [[piece.piece_id for piece in chain] for chain in chains] == [["a", "b"], ["c"]]
+        assert links.conversations == (("a", "b"),)
+        assert links.model_calls == 0
 
     def test_the_gap_counts_from_the_real_end_of_a_piece_whose_calls_were_cut(self) -> None:
         long_piece = Piece(
@@ -157,9 +173,10 @@ class TestCandidateChainsQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def test_pieces_chain_within_the_gap_and_a_chain_needs_a_data_tool(self) -> None:
-        self._call("first", AT)
+        self._call("first", AT, **{"$mcp_conversation_id": "thread"})
         self._call("second", AT + timedelta(minutes=10), tool="metric-list")
         self._call("later", AT + timedelta(hours=2))
+        self._call("resumed", AT + timedelta(hours=4), **{"$mcp_conversation_id": "thread"})
         self._call("docs-only", AT + timedelta(hours=5), tool="docs-search")
         self._call("other-project", AT + timedelta(minutes=5), **{"$mcp_project_uuid": "another-project"})
         flush_persons_and_events()
@@ -172,4 +189,7 @@ class TestCandidateChainsQuery(ClickhouseTestMixin, BaseTest):
             chain_limit=100,
         )
 
-        assert sorted([piece.piece_id for piece in chain] for chain in chains) == [["first", "second"], ["later"]]
+        assert sorted([piece.piece_id for piece in chain] for chain in chains) == [
+            ["first", "second", "resumed"],
+            ["later"],
+        ]
