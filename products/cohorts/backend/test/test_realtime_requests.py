@@ -14,7 +14,7 @@ from parameterized import parameterized
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate, PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.realtime_request import RealtimeCohortRequest, RealtimeCohortRequestState
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
@@ -54,7 +54,7 @@ class TestRealtimeCohortRequests(BaseTest):
         super().setUp()
         self.peak_day_events = 500
         scan = mock.patch(
-            "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+            "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
             side_effect=self._scan_estimate,
         )
         sizing = mock.patch(
@@ -225,10 +225,14 @@ class TestRealtimeCohortRequests(BaseTest):
         RealtimeCohortTeamAccess.objects.create(
             team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.BETA
         )
-        Cohort.objects.create(team=self.team, filters={"properties": {"type": "AND", "values": [PAGEVIEW_LEAF]}})
+        Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": [PAGEVIEW_LEAF]}},
+        )
 
         with mock.patch(
-            "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+            "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
             side_effect=RuntimeError("ClickHouse timeout"),
         ):
             failed = self._submit_and_run(lambda: self._behavioral_backfill(skip_scan_limit=False))
