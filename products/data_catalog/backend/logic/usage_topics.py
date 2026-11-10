@@ -77,6 +77,14 @@ TOPIC_SESSION_LIMIT = 1000
 _LOOKUP_BATCH = 1000
 
 
+class SessionPurpose(StrEnum):
+    ANSWER = "answer"
+    EXPLAIN = "explain"
+    INVESTIGATE = "investigate"
+    MAINTAIN = "maintain"
+    OTHER = "other"
+
+
 class SessionKind(StrEnum):
     ANALYSIS = "analysis"
     LOOKUP = "lookup"
@@ -105,11 +113,17 @@ _SESSION_PROMPT = """Below are notes an AI agent wrote during one working sessio
 {notes}
 </notes>
 
-Decide what the session did with data. Ignore the agent's mechanics, such as loading a skill or guide, checking a schema, finding a table, reading a checklist, or fixing a failed query. Ignore why the work started: a support ticket, an incident, and a report can all hold real analysis.
+Decide what the person asked the agent to do, and then what the session did with data. Ignore the agent's mechanics, such as loading a skill or guide, checking a schema, finding a table, reading a checklist, or fixing a failed query. Ignore why the work started: a support ticket, an incident, and a report can all hold real analysis. But when the work starts from a saved insight, dashboard, alert, or notebook that the person points at, such as "the insight the user is viewing" or "the alert that fired", that saved object sets the purpose.
 
-Reply with JSON only, with these three fields:
+Reply with JSON only, with these four fields:
+- "purpose": what the person asked the agent to do, one of
+  - "answer": find out something from data that the agent must work out itself, such as a number, a trend, a comparison, or why a measure changed. A new insight, dashboard, or notebook that shows such a result also counts.
+  - "explain": explain, describe, or summarize a saved insight, dashboard, alert, notebook, or query that the person points at.
+  - "investigate": find why a saved insight, dashboard, or alert that the person points at shows a change, such as an alert that fired or a chart that moved.
+  - "maintain": fix, test, or check a query, insight, dashboard, alert, instrumentation, or code, with no new question about the data.
+  - "other": anything else, such as setup, or a question about how the product works.
 - "kind": one of
-  - "analysis": the agent calculates or compares data to learn something about a product, the business, or customers. Examples are a count, a rate, a trend, a ranking, a breakdown, a forecast, a comparison between groups or periods, or a pattern across many records. Measuring one customer counts, such as that customer's spend or usage over time.
+  - "analysis": the purpose is "answer", and the agent calculates or compares data to learn something about a product, the business, or customers. Examples are a count, a rate, a trend, a ranking, a breakdown, a forecast, a comparison between groups or periods, or a pattern across many records. Measuring one customer counts, such as that customer's spend or usage over time.
   - "lookup": the agent reads or checks specific things, and learns no measure or pattern. Examples are one record, one ticket, one setting, one definition, a list of tables, who changed something, what happened to one customer or one event, the cause of one failure, and whether a query, tile, job, or fix works.
   - "automation": a scheduled or repeated job with no person asking in the moment.
   - "unclear": the notes do not show what the session did with data.
@@ -468,6 +482,10 @@ async def read_session(client: AsyncAnthropic, session: SessionText) -> SessionR
         kind = SessionKind(parsed["kind"])
         if kind == SessionKind.UNREAD:
             raise ValueError("The model chose a kind that it was not offered")
+        # A session that explains, investigates, or maintains a saved object reads data about that object
+        # instead of answering a new question, so topics and coverage leave it out.
+        if kind == SessionKind.ANALYSIS and SessionPurpose(parsed.get("purpose", "answer")) != SessionPurpose.ANSWER:
+            kind = SessionKind.LOOKUP
         question = str(parsed.get("question") or "").strip()
         if kind in _TOPIC_KINDS and not question:
             return SessionReading(kind=SessionKind.UNCLEAR, question="")

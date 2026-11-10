@@ -350,6 +350,12 @@ class TestReadSession(SimpleTestCase):
                 True,
             ),
             (
+                "explaining_a_saved_insight_is_a_lookup",
+                '{"purpose": "explain", "kind": "analysis", "catalog_check": true, "question": "Weekly usage?"}',
+                SessionKind.LOOKUP,
+                "Weekly usage?",
+            ),
+            (
                 "catalog_check_counts_only_for_analysis",
                 '{"kind": "lookup", "catalog_check": true, "question": ""}',
                 SessionKind.LOOKUP,
