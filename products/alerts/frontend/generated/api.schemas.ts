@@ -895,11 +895,6 @@ export interface AlertDeleteDestinationApi {
     hog_function_ids: string[]
 }
 
-export interface TransferOwnershipApi {
-    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
-    user_uuid?: string
-}
-
 /**
  * * `critical` - critical
  * * `error` - error
@@ -941,6 +936,11 @@ export interface AlertCreatePagerDutyDestinationApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface TransferOwnershipApi {
+    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+    user_uuid?: string
 }
 
 /**
