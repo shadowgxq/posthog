@@ -43,6 +43,7 @@ Product usage tiles use `AccountProductUsage` and `AccountProductUsageTable`: Pr
 
 The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix/`.
 Account activity matrices use its embedded mode edge to edge inside view cards and hide legend filter instructions.
+Unconfigured tiles keep an inset setup state with a source picker sized to its content.
 `AccountViewTileHeaderActions` places widget-owned controls in the enclosing tile header, with an inline fallback outside a tile.
 `DotMatrixTileSettings` uses this slot for the Options gear and custom-query edit action.
 Product grouping and first-use controls share a left-aligned, inset row with a focusable activity-definition info icon.
