@@ -185,12 +185,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     if comment.rich_content:
         html_body = rich_content_to_html(comment.rich_content)
-        # No mail client renders the text/plain part as markdown, so the escapes would reach the
-        # customer as backslashes in the middle of the reply.
+        # No mail client renders the text/plain part as markdown, so an escape reaches the customer.
         txt_body = unescape_markdown(rich_content_to_markdown(comment.rich_content, include_images=False))
     else:
-        # The content holds the composer's markdown and this branch renders none of it, so both
-        # parts carry the text with the escapes removed.
+        # This branch renders no markdown, so both parts take the text with the escapes removed.
         txt_body = unescape_markdown(comment.content or "")
         html_body = f"<p>{html_mod.escape(txt_body)}</p>"
 
