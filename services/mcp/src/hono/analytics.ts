@@ -377,10 +377,13 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
 ])
 
 // A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
-// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+// address as its search. The suppression and opt-out imports take a list of recipient addresses as input.
+// Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
 const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
     'workflows-transactional-emails-list',
     'workflows-transactional-email-get',
+    'opt-outs-add',
+    'suppressions-add',
 ])
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'

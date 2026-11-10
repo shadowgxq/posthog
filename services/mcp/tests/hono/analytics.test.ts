@@ -733,6 +733,13 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['another tool through exec', 'exec', { command: 'call feature-flag-get-all {}' }, true],
+            [
+                'a suppression list import',
+                'suppressions-add',
+                { suppressions: [{ identifier: 'user@example.com', reason: 'bounce' }] },
+                false,
+            ],
+            ['an opt-out list import', 'opt-outs-add', { opt_outs: [{ identifier: 'user@example.com' }] }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
