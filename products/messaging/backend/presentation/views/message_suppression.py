@@ -126,7 +126,7 @@ class BulkAddSuppressionsRequestSerializer(serializers.Serializer):
     suppressions = BulkSuppressionEntrySerializer(
         many=True,
         allow_empty=False,
-        max_length=MAX_BULK_SUPPRESSION_ENTRIES,
+        max_length=MAX_BULK_SUPPRESSION_ENTRIES,  # type: ignore[call-arg]
         help_text=f"Addresses to suppress, at most {MAX_BULK_SUPPRESSION_ENTRIES} per request.",
     )
 
