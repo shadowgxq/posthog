@@ -840,6 +840,9 @@ class InsightSerializer(InsightBasicSerializer):
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
+        move_to_folder = validated_data.pop("move_to_folder", None)
+        if move_to_folder is not None:
+            validated_data["_create_in_folder"] = move_to_folder
         team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)

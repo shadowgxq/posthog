@@ -10,13 +10,12 @@ def _validate_folder_path(value: str) -> str:
 def move_to_folder_field(noun: str) -> serializers.CharField:
     return serializers.CharField(
         required=False,
-        allow_blank=True,
         write_only=True,
         validators=[_validate_folder_path],
         help_text=(
             f"Project-tree folder to move this {noun} into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. "
             f"Separate nested folders with '/'; folders that do not exist yet are created. "
-            f"An empty string moves the {noun} to the project root. The {noun} keeps its own name. "
+            f"The {noun} keeps its own name. "
             f"Has no effect when the {noun} has no file system entry."
         ),
     )

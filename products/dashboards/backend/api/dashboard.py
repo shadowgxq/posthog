@@ -1977,6 +1977,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+        move_to_folder = validated_data.pop("move_to_folder", None)
+        if move_to_folder is not None:
+            validated_data["_create_in_folder"] = move_to_folder
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)

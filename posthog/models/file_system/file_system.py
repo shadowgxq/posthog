@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from django.contrib.postgres.indexes import GinIndex, OpClass
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Func, Q, TextField, Value
 from django.db.models.expressions import F
 from django.db.models.functions import Concat, Lower
@@ -133,12 +133,13 @@ def move_file_to_folder(
     existing_files = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).filter(
         ~Q(shortcut=True)
     )
-    for existing in existing_files:
-        segments = [*folder_segments, split_path(existing.path)[-1]]
-        _assure_parent_folders(team, segments, created_by_id, surface)
-        existing.path = join_path(segments)
-        existing.depth = len(segments)
-        existing.save()
+    with transaction.atomic():
+        for existing in existing_files:
+            segments = [*folder_segments, split_path(existing.path)[-1]]
+            _assure_parent_folders(team, segments, created_by_id, surface)
+            existing.path = join_path(segments)
+            existing.depth = len(segments)
+            existing.save()
 
 
 def _assure_parent_folders(team: Team, segments: list[str], created_by_id: Optional[int], surface: str):

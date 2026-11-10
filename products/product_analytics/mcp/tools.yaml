@@ -257,6 +257,7 @@ tools:
             - tags
             - favorited
             - dashboards
+            - move_to_folder
         param_overrides:
             query:
                 schema_ref: InsightQuery
@@ -374,6 +375,7 @@ tools:
             - tags
             - favorited
             - dashboards
+            - move_to_folder
         param_overrides:
             id:
                 aliases:

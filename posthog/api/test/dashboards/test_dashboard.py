@@ -531,6 +531,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert paged_ids == sorted(tied_ids)
 
+    def test_update_dashboard_moves_it_to_another_folder(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Revenue", "_create_in_folder": "Old"})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"move_to_folder": "Experiments"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["folder"] == "Experiments"
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+        assert entry.path == "Experiments/Revenue"
+
+    def test_create_dashboard_with_move_to_folder_files_it_in_that_folder(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Revenue", "move_to_folder": "Experiments"})
+
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+        assert entry.path == "Experiments/Revenue"
+
     def test_list_includes_folder_from_filesystem(self):
         filed_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}

@@ -372,6 +372,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        move_to_folder = validated_data.pop("move_to_folder", None)
+        if move_to_folder is not None:
+            validated_data["_create_in_folder"] = move_to_folder
+
         # short_id is read-only in the serializer but can be provided on create
         short_id = request.data.get("short_id")
         if short_id:
@@ -492,8 +496,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         )
                     )
 
-        if move_to_folder is not None:
-            updated_notebook.move_file_system_entry(move_to_folder, self.context["request"].user.id)
+            if move_to_folder is not None:
+                updated_notebook.move_file_system_entry(move_to_folder, self.context["request"].user.id)
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
