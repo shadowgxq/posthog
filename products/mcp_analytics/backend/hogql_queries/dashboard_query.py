@@ -281,7 +281,6 @@ TYPED_SECTIONS: dict[MCPDashboardSection, TypedSection] = {
 
 GENERIC_SECTION_ERROR = "This section could not be loaded."
 LEAN_DATABASE_FLAG = "mcp-analytics-dashboard-lean-database"
-# The filter types whose rows the lean database resolves the same as the full one.
 LEAN_DATABASE_FILTER_TYPES = frozenset({"event", "person", "session", "cohort", "group"})
 
 
