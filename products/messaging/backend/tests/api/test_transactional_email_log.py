@@ -14,7 +14,7 @@ from rest_framework import status
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
@@ -296,6 +296,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 timestamp=sent_at + offset,
                 properties={"$session_id": session_id} if session_id else {},
             )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="jane",
+            timestamp=sent_at + timedelta(minutes=5, seconds=30),
+            properties={"$session_id": "after", "$event_type": "click", "$pathname": "/billing"},
+            elements=[Element(tag_name="button", text="Upgrade", nth_child=0, nth_of_type=0)],
+        )
         flush_persons_and_events()
 
         response = self.client.get(self._url(f"{message_id}/activity/"))
@@ -307,12 +315,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [(e["event"], e["session_id"]) for e in body["before"]] == [("$pageview", "before")]
         assert [(e["event"], e["session_id"]) for e in body["after"]] == [
             ("$pageview", "after"),
+            ("$autocapture", "after"),
             ("upgraded_plan", "after"),
             ("invoice_paid", None),
         ]
+        click = body["after"][1]
+        assert (click["event_type"], click["pathname"]) == ("click", "/billing")
+        assert 'text="Upgrade"' in click["elements_chain"]
         assert [(s["session_id"], s["event_count"], s["started_after_send"]) for s in body["sessions"]] == [
             ("before", 1, False),
-            ("after", 2, True),
+            ("after", 3, True),
         ]
 
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
