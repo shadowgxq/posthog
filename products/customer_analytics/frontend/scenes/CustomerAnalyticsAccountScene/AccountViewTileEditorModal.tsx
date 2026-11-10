@@ -5,7 +5,6 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { ACCOUNT_SQL_QUERY_PLACEHOLDER, isAccountSqlQueryScoped } from '../../components/Accounts/accountSqlQuery'
-
 import { AccountPropertiesWidgetConfiguration } from './AccountPropertiesWidgetConfiguration'
 import { accountViewsLogic } from './accountViewsLogic'
 

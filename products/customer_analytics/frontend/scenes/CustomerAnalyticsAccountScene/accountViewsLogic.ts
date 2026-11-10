@@ -147,20 +147,31 @@ export interface accountViewsLogicActions {
         name: string,
         options?:
             | {
+                  sqlQuery: string
+              }
+            | {
                   accountId: string
                   propertiesConfig: AccountViewTileConfig
               }
-            | {
-                  sqlQuery: string
-              }
-    ) => {
-        accountId?: string | undefined
-        name: string
-        nodeId: string
-        propertiesConfig?: AccountViewTileConfig | undefined
-        sqlQuery?: string | undefined
-        viewId: string
-    }
+    ) =>
+        | {
+              name: string
+              nodeId: string
+              viewId: string
+          }
+        | {
+              name: string
+              nodeId: string
+              sqlQuery: string
+              viewId: string
+          }
+        | {
+              accountId: string
+              name: string
+              nodeId: string
+              propertiesConfig: AccountViewTileConfig
+              viewId: string
+          }
     reloadEditor: () => {
         value: true
     }

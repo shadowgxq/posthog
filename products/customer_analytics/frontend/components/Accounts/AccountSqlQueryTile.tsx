@@ -34,7 +34,9 @@ export function AccountSqlQueryTile({ externalId, instanceId, initialConfig }: A
     return (
         <Query
             query={node}
-            context={{ insightProps: { dashboardItemId: `new-account-sql-query-${instanceId ?? 'tile'}-${externalId}` } }}
+            context={{
+                insightProps: { dashboardItemId: `new-account-sql-query-${instanceId ?? 'tile'}-${externalId}` },
+            }}
             readOnly
             embedded
         />
