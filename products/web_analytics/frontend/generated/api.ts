@@ -10,10 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AEOBrandApi,
+    AEOBrandCreateRequestApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
@@ -26,6 +28,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
+    AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -139,6 +142,27 @@ export const aeoBrandsList = async (
     return apiMutator<PaginatedAEOBrandListApi>(getAeoBrandsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAeoBrandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_brands/`
+}
+
+/**
+ * Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.
+ * @summary Add an AEO brand
+ */
+export const aeoBrandsCreate = async (
+    projectId: string,
+    aEOBrandCreateRequestApi: AEOBrandCreateRequestApi,
+    options?: RequestInit
+): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOBrandCreateRequestApi),
     })
 }
 
@@ -383,6 +407,37 @@ export const aeoPromptsOverview = async (
     options?: RequestInit
 ): Promise<AEOPromptSetOverviewApi> => {
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsRankingsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/rankings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/rankings/`
+}
+
+/**
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains.
+ * @summary Get AEO brand rankings
+ */
+export const aeoPromptsRankings = async (
+    projectId: string,
+    params?: AeoPromptsRankingsParams,
+    options?: RequestInit
+): Promise<AEOPromptSetRankingsApi> => {
+    return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
