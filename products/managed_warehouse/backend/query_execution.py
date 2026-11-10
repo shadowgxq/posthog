@@ -8,8 +8,6 @@ from posthog.schema import HogQLQuery, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.raw_trino_view import RawTrinoViewCatalog, expand_raw_trino_view_references
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -23,7 +21,6 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, ViewEngine
 from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
@@ -74,26 +71,19 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         validate_managed_trino_raw_access(team, user)
 
 
-def raw_trino_view_catalog(
-    team: Team, user: User, user_access_control: UserAccessControl | None
-) -> RawTrinoViewCatalog | None:
-    """The raw Trino views the user can read, with the same access rules a HogQL query gets."""
-    if (
-        not DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-        .filter(ViewEngine.raw_trino_filter())
-        .exclude(deleted=True)
-        .exists()
-    ):
-        return None
-    database = Database.create_for(
-        team.pk,
-        team=team,
-        user=user,
-        user_access_control=user_access_control,
-        trigger="trino_raw",
-        raw_trino_view_access=True,
-    )
-    return database.raw_trino_view_catalog
+def has_raw_trino_view_access(team: Team, user: User | None) -> bool:
+    """Whether a HogQL query may read views that hold raw Trino SQL, which run on the organization's warehouse credential.
+
+    Only a request that the browser session authenticated qualifies, or an async query such a request started.
+    Exports, alerts and other background work run as a user too, but nobody signed in started them.
+    """
+    if not get_query_tags().browser_session:
+        return False
+    try:
+        validate_managed_trino_raw_access(team, user)
+    except ExposedHogQLError:
+        return False
+    return True
 
 
 def execute_managed_trino_query(
@@ -120,9 +110,7 @@ def execute_managed_trino_query(
         return paginator.paginate(parsed) if paginator is not None else parsed
 
     if query.sendRawQuery:
-        # Raw views exist only as stored SQL, so Trino would not find a table of that name.
-        catalog = raw_trino_view_catalog(team, user, user_access_control)
-        sql = query.query if catalog is None else expand_raw_trino_view_references(query.query, catalog)
+        sql = query.query
         values = None
         hogql = None
     else:

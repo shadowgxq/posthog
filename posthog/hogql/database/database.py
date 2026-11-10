@@ -65,12 +65,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
-from posthog.hogql.database.raw_trino_view import (
-    RawTrinoView,
-    RawTrinoViewCatalog,
-    RawTrinoViewTable,
-    raw_trino_view_sql,
-)
+from posthog.hogql.database.raw_trino_view import RawTrinoViewTable, raw_trino_view_sql
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
@@ -373,24 +368,6 @@ def models_namespace_chain(saved_query: Any) -> list[str] | None:
     if is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
-
-
-def _build_raw_trino_view_catalog(
-    database: Database,
-    raw_trino_tables: list[tuple[list[str], RawTrinoViewTable, DataWarehouseSavedQuery]],
-) -> RawTrinoViewCatalog:
-    """The raw Trino views a caller can read, for raw SQL and HogQL alike.
-
-    A view whose name a table already owns stays out, because HogQL resolves that name to the table. Raw SQL then
-    passes the name to Trino unchanged, so both modes read the table.
-    """
-    return RawTrinoViewCatalog(
-        views={
-            saved_query.name: RawTrinoView(name=saved_query.name, sql=raw_trino_view_sql(saved_query.query))
-            for chain, table, saved_query in raw_trino_tables
-            if database.tables.has_child(chain) and database.tables.get_child(chain).table is table
-        }
-    )
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -901,8 +878,6 @@ class Database(BaseModel):
     _flag_calls_only_in_flag_evaluations: bool = False
     _read_flag_calls_with_union: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
-    # One shared catalog for every raw Trino view table, so the build stays linear in the number of views.
-    _raw_trino_view_catalog: RawTrinoViewCatalog | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
@@ -1527,11 +1502,6 @@ class Database(BaseModel):
             and not sources.bypass_warehouse_access_control
             and self._is_warehouse_view_denied(saved_query)
         )
-
-    @property
-    def raw_trino_view_catalog(self) -> RawTrinoViewCatalog | None:
-        """The raw Trino views this caller can expand, or None when the build did not include them."""
-        return self._raw_trino_view_catalog
 
     def _is_warehouse_expression_denied(self, expression: Any) -> bool:
         """
@@ -2709,17 +2679,18 @@ class Database(BaseModel):
                         table_conflict_mode="ignore",
                     )
 
-        raw_trino_tables: list[tuple[list[str], RawTrinoViewTable, DataWarehouseSavedQuery]] = []
         if raw_trino_view_access is not None and not database._is_direct_query():
             with timings.measure("raw_trino_saved_query", emit_span=True):
                 for saved_query in sources.raw_trino_saved_queries:
                     if not database._is_saved_query_readable(saved_query, sources):
                         continue
-                    raw_chain = saved_query.name.split(".")
-                    raw_table = RawTrinoViewTable(name=saved_query.name, fields=saved_query.hogql_fields())
-                    raw_trino_tables.append((raw_chain, raw_table, saved_query))
+                    raw_table = RawTrinoViewTable(
+                        name=saved_query.name,
+                        fields=saved_query.hogql_fields(),
+                        sql=raw_trino_view_sql(saved_query.query) if raw_trino_view_access else None,
+                    )
                     views.add_child(
-                        TableNode.create_nested_for_chain(raw_chain, table=raw_table),
+                        TableNode.create_nested_for_chain(saved_query.name.split("."), table=raw_table),
                         table_conflict_mode="ignore",
                     )
 
@@ -3070,8 +3041,6 @@ class Database(BaseModel):
             alias: views.get_child(chain) for alias, chain in database._models_aliases.items() if views.has_child(chain)
         }
         database._add_views(views)
-        if raw_trino_view_access:
-            database._raw_trino_view_catalog = _build_raw_trino_view_catalog(database, raw_trino_tables)
 
         if deferred_revenue_handles:
             # Armed before the joins and saved-expressions passes below: a join or expression that

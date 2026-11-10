@@ -51,9 +51,9 @@ from posthog.models.activity_logging.retention import get_activity_log_lookback_
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
+    has_raw_trino_view_access,
     use_trino_canary,
     validate_managed_trino_query,
-    validate_managed_trino_raw_access,
 )
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
@@ -162,13 +162,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
             # A HogQL query can read raw Trino views, which run on the organization's warehouse credential.
             # validate_managed_trino_query already checked raw access for a raw query.
-            self._managed_trino_raw_access = bool(self.query.sendRawQuery)
-            if not self._managed_trino_raw_access:
-                try:
-                    validate_managed_trino_raw_access(self.team, user if user is not None else self.user)
-                    self._managed_trino_raw_access = True
-                except ExposedHogQLError:
-                    pass
+            self._managed_trino_raw_access = bool(self.query.sendRawQuery) or has_raw_trino_view_access(
+                self.team, user if user is not None else self.user
+            )
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:

@@ -153,9 +153,6 @@ def prepare_and_print_ast(
                         stack=tuple(stack or []),
                         settings=settings,
                         pretty=pretty,
-                        raw_trino_view_catalog=(
-                            database.raw_trino_view_catalog if database is not None else context.raw_trino_view_catalog
-                        ),
                     )
                 )
             context.values.clear()

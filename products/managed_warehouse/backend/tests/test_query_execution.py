@@ -146,7 +146,6 @@ def test_the_cache_key_and_the_connection_share_one_canary_decision(
     assert used_canary is first
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize("canary", [False, True])
 def test_a_managed_trino_run_connects_the_way_the_runner_decided(team: Team, canary: bool) -> None:
     user = User(id=9, distinct_id="user-9")
@@ -325,8 +324,19 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
     cached_run.assert_not_called()
 
 
-def test_hogql_results_that_may_read_raw_views_are_kept_from_token_callers(team: Team) -> None:
-    def cache_payload_and_labels(access_method: AccessMethod | None) -> tuple[dict, list[str] | None]:
+@pytest.mark.parametrize(
+    "tags,expected_access",
+    [
+        (QueryTags(browser_session=True), True),
+        (QueryTags(access_method=AccessMethod.PERSONAL_API_KEY), False),
+        # An export or alert runs as the user who made it, but in a worker with no session.
+        (QueryTags(), False),
+    ],
+)
+def test_hogql_results_that_may_read_raw_views_are_kept_from_callers_without_a_session(
+    team: Team, tags: QueryTags, expected_access: bool
+) -> None:
+    def cache_payload_and_labels(tags: QueryTags) -> tuple[dict, list[str] | None]:
         runner = _canary_runner(team, connection=False)
         runner.query = HogQLQuery(query="SELECT * FROM raw_view", executionTarget="managed_trino")
         runner._modifiers_override_provided = False
@@ -342,18 +352,14 @@ def test_hogql_results_that_may_read_raw_views_are_kept_from_token_callers(team:
                 new_callable=PropertyMock,
                 return_value=True,
             ),
-            patch(
-                "products.managed_warehouse.backend.query_execution.get_query_tags",
-                return_value=QueryTags(access_method=access_method),
-            ),
+            patch("products.managed_warehouse.backend.query_execution.get_query_tags", return_value=tags),
         ):
             return runner.get_cache_payload(), runner.query_status_labels()
 
-    browser_payload, browser_labels = cache_payload_and_labels(None)
-    token_payload, token_labels = cache_payload_and_labels(AccessMethod.PERSONAL_API_KEY)
-    assert browser_payload != token_payload
-    assert browser_labels == [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
-    assert token_labels is None
+    browser_payload, _ = cache_payload_and_labels(QueryTags(browser_session=True))
+    payload, labels = cache_payload_and_labels(tags)
+    assert (payload == browser_payload) is expected_access
+    assert labels == ([MANAGED_TRINO_RAW_QUERY_STATUS_LABEL] if expected_access else None)
 
 
 @pytest.mark.parametrize(
@@ -412,35 +418,13 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
     assert response.hogql is None
 
 
-@pytest.mark.parametrize(
-    "sql,expected",
-    [
-        (
-            "select * from __ph_debug_view",
-            'WITH __ph_rv_0 AS (\nSELECT 1 AS id\n)\nselect * from __ph_rv_0 AS "__ph_debug_view"',
-        ),
-        ("select * from other_team_view", "select * from other_team_view"),
-        ("select * from deleted_view", "select * from deleted_view"),
-        # A table owns its name, so a view named like one stays out of both raw and HogQL mode.
-        ("select * from events", "select * from events"),
-        ("select * from denied_view", "select * from denied_view"),
-    ],
-)
 @pytest.mark.django_db
-def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expected: str) -> None:
+def test_raw_query_sends_a_view_name_to_trino_unchanged() -> None:
     organization = Organization.objects.create(name="Example organization")
     team = Team.objects.create(organization=organization)
-    other_team = Team.objects.create(organization=organization)
     user = User.objects.create_and_join(organization, "reader@example.com", "password")
-    raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
-    for view_team, name, deleted, query in [
-        (team, "__ph_debug_view", False, {**raw, "query": "SELECT 1 AS id;"}),
-        (other_team, "other_team_view", False, {**raw, "query": "SELECT 1 AS id"}),
-        (team, "deleted_view", True, {**raw, "query": "SELECT 1 AS id"}),
-        (team, "denied_view", False, {**raw, "query": "SELECT 1 AS id"}),
-        (team, "events", False, {**raw, "query": "SELECT 1 AS id"}),
-    ]:
-        DataWarehouseSavedQuery.objects.create(team=view_team, name=name, deleted=deleted, query=query)
+    raw_view = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True, "query": "SELECT 1"}
+    DataWarehouseSavedQuery.objects.create(team=team, name="raw_view", query=raw_view)
     cursor = MagicMock()
     cursor.fetchmany.return_value = [(1,)]
     cursor.description = [("id", "integer")]
@@ -449,16 +433,12 @@ def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expec
     with (
         patch("posthoganalytics.feature_enabled", return_value=True),
         patch(
-            "products.managed_warehouse.backend.query_execution.UserAccessControl.check_access_level_for_object",
-            side_effect=lambda view, required_level: view.name != "denied_view",
-        ),
-        patch(
             "products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino",
             return_value=nullcontext(connection),
         ),
     ):
         execute_managed_trino_query(
-            HogQLQuery(query=sql, executionTarget="managed_trino", sendRawQuery=True),
+            HogQLQuery(query="select * from raw_view", executionTarget="managed_trino", sendRawQuery=True),
             team=team,
             user=user,
             user_access_control=None,
@@ -466,4 +446,67 @@ def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expec
             timings=HogQLTimings(),
             limit_context=LimitContext.QUERY,
         )
-    cursor.execute.assert_called_once_with(expected)
+    cursor.execute.assert_called_once_with("select * from raw_view")
+
+
+@pytest.mark.parametrize("browser_session", [True, False])
+@pytest.mark.django_db
+def test_only_a_browser_session_runs_a_hogql_query_that_reads_a_raw_view(browser_session: bool) -> None:
+    organization = Organization.objects.create(name="Example organization")
+    team = Team.objects.create(organization=organization)
+    user = User.objects.create_and_join(organization, "reader@example.com", "password")
+    raw_view = {
+        "kind": "HogQLQuery",
+        "executionTarget": "managed_trino",
+        "sendRawQuery": True,
+        "query": "SELECT 1 AS id",
+    }
+    columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+    DataWarehouseSavedQuery.objects.create(team=team, name="raw_view", query=raw_view, columns=columns)
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = [(1,)]
+    cursor.description = [("id", "integer")]
+    connection = MagicMock()
+    connection.cursor.return_value = cursor
+    with (
+        tags_context(browser_session=browser_session or None),
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+        patch(
+            "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+            return_value="org_catalog",
+        ),
+        patch(
+            "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+            return_value=ManagedWarehouseTeamMembership(
+                team_id=team.pk,
+                organization_id=str(organization.pk),
+                schema_name="production",
+                enabled=True,
+                backfill_enabled=True,
+                table_names=ManagedWarehouseTableNames(
+                    events_table="events_example",
+                    persons_table="persons_example",
+                    data_imports_schema="imports_example",
+                ),
+                earliest_event_date=None,
+            ),
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino",
+            return_value=nullcontext(connection),
+        ),
+    ):
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="SELECT id FROM raw_view", executionTarget="managed_trino"),
+            team=team,
+            user=user,
+            limit_context=LimitContext.EXPORT if not browser_session else LimitContext.QUERY,
+        )
+        if not browser_session:
+            with pytest.raises(ExposedHogQLError, match="Open it from the SQL editor while signed in"):
+                runner.calculate()
+            cursor.execute.assert_not_called()
+            return
+        runner.calculate()
+    assert cursor.execute.call_args.args[0].startswith("WITH __ph_rv_0 AS (\nSELECT 1 AS id\n)")

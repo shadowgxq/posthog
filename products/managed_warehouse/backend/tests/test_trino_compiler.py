@@ -504,8 +504,8 @@ class TestCompileHogQLToTrinoSQL:
         raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
         columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
         bodies = [
-            ("__ph_debug_view", "SELECT 1 AS id;"),
-            ("orders_daily", "SELECT id -- don't count tests\nFROM __ph_debug_view"),
+            # A quote inside a comment would otherwise start a string for the parameter binder.
+            ("orders_daily", "SELECT id -- don't count tests\nFROM example_orders;"),
             *((f"extra_{i}", f"SELECT {i} AS id") for i in range(views)),
         ]
         for name, sql in bodies:
@@ -540,8 +540,8 @@ class TestCompileHogQLToTrinoSQL:
         )
 
         assert convert_pyformat_placeholders(compiled.sql, compiled.values) == (
-            'WITH __ph_rv_0 AS (\nSELECT 1 AS id\n), __ph_rv_1 AS (\nSELECT id FROM __ph_rv_0 AS "__ph_debug_view"\n)\n'
-            'SELECT "orders_daily"."id" FROM __ph_rv_1 AS "orders_daily" '
+            "WITH __ph_rv_0 AS (\nSELECT id FROM example_orders\n)\n"
+            'SELECT "orders_daily"."id" FROM __ph_rv_0 AS "orders_daily" '
             'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
             ["1"],
         )
