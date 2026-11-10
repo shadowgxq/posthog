@@ -536,6 +536,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("nofit", "weekly page views", "SELECT uniq(person_id) FROM page_views")
         self._session("asked", "weekly page views", "SELECT uniq(person_id) FROM page_views", "metric-list")
         self._session("ticket", "open the ticket thread", "SELECT uniq(person_id) FROM page_views")
+        self._session("saved", "weekly signups", None, tool="insight-query")
         flush_persons_and_events()
 
         result = self._measure(_FakeClient())

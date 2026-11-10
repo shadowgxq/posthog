@@ -32,7 +32,17 @@ from posthog.sync import database_sync_to_async
 
 from ..facade.enums import JudgeRelation, MetricStatus
 from ..models import Metric
-from .agent_sessions import Piece, SessionText, StitchedSessions, fetch_candidate_chains, gather_each, stitch_chains
+from .agent_sessions import (
+    DATA_TOOL_PREFIX,
+    RUN_TOOL,
+    SQL_TOOL,
+    Piece,
+    SessionText,
+    StitchedSessions,
+    fetch_candidate_chains,
+    gather_each,
+    stitch_chains,
+)
 from .metric_fingerprint import CatalogIndex
 from .usage_adjusted import (
     AgentQuery,
@@ -87,6 +97,14 @@ _FULL_LISTING_MARKER = '"next":null'
 _PAGING_ARGUMENTS = frozenset({"limit", "offset"})
 EXAMPLES_PER_OUTCOME = 15
 _CAPTURE_BATCH = 1000
+# A conversation that only reads or runs saved insights and dashboards reuses their definitions, so the
+# catalog check does not apply to it. The usage scan still counts these conversations.
+_COVERAGE_TOOLS = frozenset({RUN_TOOL, SQL_TOOL})
+
+
+def _queries_fresh_data(session: SessionText) -> bool:
+    return any(tool in _COVERAGE_TOOLS or tool.startswith(DATA_TOOL_PREFIX) for tool in session.tools)
+
 
 # The metric name in a stored listing sits inside JSON text that is itself encoded as a string.
 _LISTINGS_QUERY = """
@@ -660,7 +678,9 @@ async def measure_team(
     ) as client:
         stitched = await stitch_chains(client, chains, heartbeat)
         # Joined chains can hold more conversations than chains, so the read budget caps the sessions too.
-        sessions = stitched.sessions[:EFFECTIVENESS_SESSION_LIMIT]
+        sessions = [session for session in stitched.sessions if _queries_fresh_data(session)][
+            :EFFECTIVENESS_SESSION_LIMIT
+        ]
         readings: list[SessionReading] = await gather_each(
             (read_session(client, session) for session in sessions), heartbeat
         )
