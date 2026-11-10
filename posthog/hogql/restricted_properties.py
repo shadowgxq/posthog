@@ -19,6 +19,10 @@ from posthog.hogql.database.schema.mcp_intent_assignments import (
     RawMCPIntentAssignmentsTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -62,6 +66,37 @@ _AI_EVENTS_MIRRORED_COLUMNS |= {
     subcolumn: _AI_EVENTS_MIRRORED_COLUMNS[source] for subcolumn, source in AI_SUBCOLUMN_TO_SOURCE.items()
 }
 
+# Web analytics dimensional columns, mapped to the event properties the INSERT templates in
+# `web_dimensional_precompute.py` read to fill them. The session-level columns come from the sessions
+# table, which copies them from event properties, so they follow the rule of that event property. The
+# entry and end pathnames are `path($current_url)` there, and they also follow `$pathname` because the
+# SDK derives `$pathname` from the same URL. A guard test fails when a dimension column is missing here.
+WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "host": ("$host",),
+    "device_type": ("$device_type",),
+    "pathname": ("$pathname",),
+    "entry_pathname": ("$current_url", "$pathname"),
+    "end_pathname": ("$current_url", "$pathname"),
+    "browser": ("$browser",),
+    "os": ("$os",),
+    "viewport_width": ("$viewport_width",),
+    "viewport_height": ("$viewport_height",),
+    "referring_domain": ("$referring_domain",),
+    "utm_source": ("utm_source",),
+    "utm_medium": ("utm_medium",),
+    "utm_campaign": ("utm_campaign",),
+    "utm_term": ("utm_term",),
+    "utm_content": ("utm_content",),
+    "has_gclid": ("gclid",),
+    "has_gad_source_paid_search": ("gad_source",),
+    "has_fbclid": ("fbclid",),
+    "country_code": ("$geoip_country_code",),
+    "city_name": ("$geoip_city_name",),
+    "region_code": ("$geoip_subdivision_1_code",),
+    "region_name": ("$geoip_subdivision_1_name",),
+    "mat_metadata_loggedIn": ("metadata.loggedIn",),
+    "mat_metadata_backend": ("metadata.backend",),
+}
 
 # The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
@@ -103,7 +138,7 @@ _EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id", "embedding"})
 def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
     """The event properties a typed column copies, or an empty tuple when the column copies nothing.
 
-    A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
+    A caller that prints one of these columns must mask the read when any of the properties is restricted, in a predicate
     as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
     `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
     """
@@ -118,6 +153,8 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
         return ()
 
+    if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
+        return WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name, ())
     source_property: str | None = None
     if isinstance(table, AiEventsTable):
         source_property = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
@@ -147,11 +184,13 @@ def wildcard_reads_restricted_mirrored_column(table_type: ast.Type, context: Hog
 
 
 def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column is masked because a property it copies is restricted."""
+    """Whether a read of this stored column masks to NULL because a property it copies is restricted."""
     source_properties = mirrored_properties_for_column(table_type, column_name, context)
-    return bool(source_properties) and not restricted_property_keys_for_table_type(table_type, context).isdisjoint(
-        source_properties
-    )
+    if not source_properties:
+        return False
+    restricted_keys = restricted_property_keys_for_table_type(table_type, context)
+    # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+    return any(key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties)
 
 
 def restricted_embedding_documents(
@@ -221,6 +260,8 @@ def restricted_property_keys_for_table_type(
         (
             *EVENT_ROW_TABLES,
             AiEventsTable,
+            WebStatsDimensionalPreAggregatedTable,
+            WebBouncesDimensionalPreAggregatedTable,
             MCPIntentAssignmentsTable,
             RawMCPIntentAssignmentsTable,
             MCPIntentCallsHourlyTable,
