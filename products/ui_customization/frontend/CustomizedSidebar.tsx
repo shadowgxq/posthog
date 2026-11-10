@@ -14,6 +14,7 @@ import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import type {
     AnalyticsFragmentButtonApi,
     AnalyticsFragmentLinkApi,
+    AnalyticsFragmentSectionApi,
     AnalyticsListSourceApi,
     AnalyticsFragmentMetricApi,
 } from './generated/api.schemas'
@@ -65,17 +66,67 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
     }
     const logic = sidebarCustomizationLogic(identity)
     const { sidebarLayout, sidebarCustomizationEnabled, sidebarFailed, sidebarLoading } = useValues(logic)
-    const { loadSidebar } = useActions(logic)
-    const matches = (label: string): boolean => label.toLowerCase().includes(props.search.query.trim().toLowerCase())
-    const renderRow = (item: SidebarNavigationItem): JSX.Element => {
-        const row = <SidebarRow {...item} />
+    const { loadSidebar, searchTyped, itemOpened } = useActions(logic)
+    const renderRow = (item: SidebarNavigationItem, onClick: () => void): JSX.Element => {
+        const row = <SidebarRow {...item} onClick={onClick} />
         return <Fragment key={item.value}>{item.wrap ? item.wrap(row) : row}</Fragment>
     }
+    const rowsFor = (
+        query: string,
+        section: AnalyticsFragmentSectionApi,
+        item: AnalyticsFragmentSectionApi['items'][number],
+        index: number
+    ): JSX.Element[] => {
+        const matches = (label: string): boolean => label.toLowerCase().includes(query.trim().toLowerCase())
+        const fromSearch = query.trim() !== ''
+        const value = `${section.id}:${index}`
+        if (item.type === 'list') {
+            return (props.navigation.lists[item.source] ?? [])
+                .filter((row) => matches(row.label))
+                .map((row, position) => renderRow(row, () => itemOpened(section.id, item.source, position, fromSearch)))
+        }
+        if (item.type === 'metric') {
+            return matches(item.label) ? [<Fragment key={value}>{props.navigation.metric(item, value)}</Fragment>] : []
+        }
+        if (item.type !== 'link' && item.type !== 'button') {
+            return []
+        }
+        const target = props.navigation.resolve(item)
+        if (!target || !matches(target.label)) {
+            return []
+        }
+        if (item.type === 'button') {
+            return [
+                <SidebarButton
+                    key={value}
+                    value={value}
+                    target={item}
+                    resolved={target}
+                    dataAttr={`${props.dataAttrPrefix}-${section.id}-button`}
+                />,
+            ]
+        }
+        return [
+            renderRow({ ...target, value, dataAttr: `${props.dataAttrPrefix}-${section.id}` }, () =>
+                itemOpened(section.id, 'link', undefined, fromSearch)
+            ),
+        ]
+    }
+    const resultCountFor = (query: string): number =>
+        sidebarLayout.sections.reduce(
+            (total, section) =>
+                total +
+                section.items.reduce((count, item, index) => count + rowsFor(query, section, item, index).length, 0),
+            0
+        )
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <SidebarSearchList
                 query={props.search.query}
-                onQueryChange={props.search.onChange}
+                onQueryChange={(query) => {
+                    props.search.onChange(query)
+                    searchTyped(query.trim().length, resultCountFor(query))
+                }}
                 searchLabel={props.search.label}
                 dataAttr={`${props.dataAttrPrefix}-search`}
             >
@@ -90,38 +141,7 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                             <div className="px-2 py-1 text-sm text-muted-foreground">{props.search.empty}</div>
                         ) : null
                     }
-                    renderItem={(section, item, index) => {
-                        const value = `${section.id}:${index}`
-                        if (item.type === 'list') {
-                            return (props.navigation.lists[item.source] ?? [])
-                                .filter((row) => matches(row.label))
-                                .map(renderRow)
-                        }
-                        if (item.type === 'metric') {
-                            return matches(item.label)
-                                ? [<Fragment key={value}>{props.navigation.metric(item, value)}</Fragment>]
-                                : []
-                        }
-                        if (item.type !== 'link' && item.type !== 'button') {
-                            return []
-                        }
-                        const target = props.navigation.resolve(item)
-                        if (!target || !matches(target.label)) {
-                            return []
-                        }
-                        if (item.type === 'button') {
-                            return [
-                                <SidebarButton
-                                    key={value}
-                                    value={value}
-                                    target={item}
-                                    resolved={target}
-                                    dataAttr={`${props.dataAttrPrefix}-${section.id}-button`}
-                                />,
-                            ]
-                        }
-                        return [renderRow({ ...target, value, dataAttr: `${props.dataAttrPrefix}-${section.id}` })]
-                    }}
+                    renderItem={(section, item, index) => rowsFor(props.search.query, section, item, index)}
                 />
             </SidebarSearchList>
             {sidebarCustomizationEnabled && sidebarFailed && (
