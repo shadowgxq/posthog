@@ -62,7 +62,8 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import SourcesConsulted
 
-_SPIKE_PROMPT = "Check the spike in WAU last week, what caused it?"
+# The spike is 8 to 10 days old, so "last week" alone could point to a window without it.
+_SPIKE_PROMPT = "Check the spike in WAU over the last two weeks, what caused it?"
 
 # A query that measures active users over time, typed or SQL.
 _ACTIVE_USERS_MEASURE = (
@@ -186,8 +187,9 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                 "analysis_diligence": {
                     "expected_behavior": (
                         "Find that uploaded_file events roughly doubled 3 to 6 days ago while the number of "
-                        "uploading users did not, that the extra events are exact duplicates (same user, same "
-                        f"timestamp, same properties), and that they carry $lib_version {UPLOAD_DUPLICATE_LIB_VERSION}. "
+                        "uploading users did not, and that each extra event copies an existing upload (same user, "
+                        "same timestamp, same file properties) but carries $lib_version "
+                        f"{UPLOAD_DUPLICATE_LIB_VERSION}. "
                         "Conclude that this is a tracking bug in a client release, not more uploads."
                     )
                 },
