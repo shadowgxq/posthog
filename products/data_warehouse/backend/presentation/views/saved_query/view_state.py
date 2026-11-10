@@ -55,9 +55,6 @@ class ViewEngineCapabilitiesSerializer(serializers.Serializer):
     referenceable_from_clickhouse = ViewCapabilitySerializer(
         help_text="Whether HogQL queries on ClickHouse can read from this view by name."
     )
-    referenceable_from_trino = ViewCapabilitySerializer(
-        help_text="Whether queries on hosted Trino can read from this view by name."
-    )
     column_source = serializers.ChoiceField(
         choices=ViewColumnSource.choices,
         help_text="Where the view's column types come from: a ClickHouse probe of the query, or the types "

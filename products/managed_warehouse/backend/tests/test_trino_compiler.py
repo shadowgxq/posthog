@@ -23,7 +23,6 @@ from posthog.hogql.transforms.trino.manifest import (
 )
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from posthog.clickhouse.query_tagging import AccessMethod, QueryTags
 from posthog.models import Organization, Team, User
 from posthog.schema_enums import DatabaseSerializedFieldType
 
@@ -497,15 +496,11 @@ class TestCompileHogQLToTrinoSQL:
 
     @staticmethod
     def _compile_with_raw_views(
-        query: HogQLQuery, *, signed_in: bool = True, access_method: AccessMethod | None = None, views: int = 0
+        query: HogQLQuery, *, raw_trino_view_access: bool = True, views: int = 0
     ) -> tuple[TrinoCompiledQuery, int]:
         organization = Organization.objects.create(name="trino-raw-views")
         team = Team.objects.create(organization=organization)
-        user = (
-            User.objects.create_and_join(organization, f"reader-{team.pk}@example.com", "password")
-            if signed_in
-            else None
-        )
+        user = User.objects.create_and_join(organization, f"reader-{team.pk}@example.com", "password")
         raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
         columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
         bodies = [
@@ -526,57 +521,41 @@ class TestCompileHogQLToTrinoSQL:
                 "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
                 return_value=_membership(team_id=team.pk, organization_id=str(organization.pk)),
             ),
-            mock.patch(
-                "products.managed_warehouse.backend.query_execution.get_query_tags",
-                return_value=QueryTags(access_method=access_method),
-            ),
             CaptureQueriesContext(connection) as queries,
         ):
             compiled = compile_hogql_to_trino_sql(
-                team.pk, query, team=team, user=user, expansion_mode=TrinoExpansionMode.DJANGO
+                team.pk,
+                query,
+                team=team,
+                user=user,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                raw_trino_view_access=raw_trino_view_access,
             )
         return compiled, len(queries)
 
     @pytest.mark.django_db
-    @pytest.mark.parametrize(
-        "query,expected_sql,expected_values",
-        [
-            (
-                "SELECT id FROM __ph_debug_view",
-                'SELECT "__ph_debug_view"."id" FROM (\nSELECT 1 AS id\n) AS "__ph_debug_view"',
-                [],
-            ),
-            (
-                "SELECT id FROM orders_daily WHERE toString(id) = {v}",
-                'SELECT "orders_daily"."id" FROM (\nWITH __ph_rv_0 AS (\nSELECT 1 AS id\n)\n'
-                'SELECT id FROM __ph_rv_0 AS "__ph_debug_view"\n) AS "orders_daily" '
-                'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
-                ["1"],
-            ),
-        ],
-    )
-    def test_django_inlines_raw_trino_views_for_a_signed_in_user(
-        self, query: str, expected_sql: str, expected_values: list[object]
-    ) -> None:
-        compiled, _ = self._compile_with_raw_views(HogQLQuery(query=query, values={"v": "1"}))
+    def test_django_hoists_raw_trino_views_for_a_caller_with_raw_access(self) -> None:
+        compiled, _ = self._compile_with_raw_views(
+            HogQLQuery(query="SELECT id FROM orders_daily WHERE toString(id) = {v}", values={"v": "1"})
+        )
 
-        assert convert_pyformat_placeholders(compiled.sql, compiled.values) == (expected_sql, expected_values)
+        assert convert_pyformat_placeholders(compiled.sql, compiled.values) == (
+            'WITH __ph_rv_0 AS (\nSELECT 1 AS id\n), __ph_rv_1 AS (\nSELECT id FROM __ph_rv_0 AS "__ph_debug_view"\n)\n'
+            'SELECT "orders_daily"."id" FROM __ph_rv_1 AS "orders_daily" '
+            'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
+            ["1"],
+        )
 
     @pytest.mark.django_db
-    @pytest.mark.parametrize("signed_in,access_method", [(False, None), (True, AccessMethod.PERSONAL_API_KEY)])
-    def test_django_refuses_raw_trino_views_without_a_browser_session(
-        self, signed_in: bool, access_method: AccessMethod | None
-    ) -> None:
+    def test_django_refuses_raw_trino_views_without_raw_access(self) -> None:
         with pytest.raises(ExposedHogQLError, match="Open it from the SQL editor while signed in"):
-            self._compile_with_raw_views(
-                HogQLQuery(query="SELECT id FROM orders_daily"), signed_in=signed_in, access_method=access_method
-            )
+            self._compile_with_raw_views(HogQLQuery(query="SELECT id FROM orders_daily"), raw_trino_view_access=False)
 
     @pytest.mark.django_db
     def test_django_raw_trino_view_count_adds_no_queries(self) -> None:
         query = HogQLQuery(query="SELECT id FROM orders_daily")
         _, few = self._compile_with_raw_views(query)
-        _, many = self._compile_with_raw_views(query, views=200)
+        _, many = self._compile_with_raw_views(query, views=20)
 
         assert many == few
 

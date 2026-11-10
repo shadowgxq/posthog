@@ -51,9 +51,9 @@ from posthog.models.activity_logging.retention import get_activity_log_lookback_
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
-    has_managed_trino_raw_access,
     use_trino_canary,
     validate_managed_trino_query,
+    validate_managed_trino_raw_access,
 )
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
@@ -158,13 +158,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:
             return
-        self._managed_trino_raw_access = False
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
             validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
             # A HogQL query can read raw Trino views, which run on the organization's warehouse credential.
-            self._managed_trino_raw_access = bool(self.query.sendRawQuery) or has_managed_trino_raw_access(
-                self.team, user if user is not None else self.user
-            )
+            # validate_managed_trino_query already checked raw access for a raw query.
+            self._managed_trino_raw_access = bool(self.query.sendRawQuery)
+            if not self._managed_trino_raw_access:
+                try:
+                    validate_managed_trino_raw_access(self.team, user if user is not None else self.user)
+                    self._managed_trino_raw_access = True
+                except ExposedHogQLError:
+                    pass
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:
@@ -394,6 +398,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 timings=self.timings,
                 limit_context=self.limit_context,
                 canary=self._trino_canary,
+                raw_trino_view_access=self._managed_trino_raw_access,
             )
 
         if self.query.sendRawQuery and self.query.connectionId:

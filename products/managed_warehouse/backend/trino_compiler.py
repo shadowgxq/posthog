@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
-    from posthog.hogql.database.raw_trino_view import RawTrinoViewMode
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
@@ -258,16 +257,6 @@ def prepare_hogql_to_trino_compiler(
     )
 
 
-def _raw_trino_view_mode(team: Team, user: User | None) -> RawTrinoViewMode:
-    """Raw view SQL runs on the organization's warehouse credential, so only a caller allowed raw SQL may expand it."""
-    from posthog.hogql.database.raw_trino_view import RawTrinoViewMode  # noqa: PLC0415
-
-    # query_execution imports this module, so its guard is imported here.
-    from products.managed_warehouse.backend.query_execution import has_managed_trino_raw_access  # noqa: PLC0415
-
-    return RawTrinoViewMode.EXPAND if has_managed_trino_raw_access(team, user) else RawTrinoViewMode.REFUSE
-
-
 def compile_hogql_to_trino_sql(
     team_id: int,
     query: HogQLQuery,
@@ -286,6 +275,7 @@ def compile_hogql_to_trino_sql(
     | None = None,
     preserve_clickhouse_output_names: bool = False,
     target: TrinoTarget | None = None,
+    raw_trino_view_access: bool = False,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -301,6 +291,8 @@ def compile_hogql_to_trino_sql(
     Trino output the names that ClickHouse derives. It does not execute a ClickHouse query.
     ``target`` reuses a ``resolve_trino_target`` result instead of asking the control plane again.
     It needs ``TrinoExpansionMode.DJANGO``.
+    Set ``raw_trino_view_access`` only when the caller may run raw SQL, because a raw Trino view
+    runs on the organization's warehouse credential. Without it, a query that reads one fails.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
         if select_transform is not None or preserve_clickhouse_output_names or target is not None:
@@ -357,7 +349,7 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         allowed_system_tables=allowed_system_tables,
         trigger="trino",
-        raw_trino_view_mode=_raw_trino_view_mode(team, user),
+        raw_trino_view_access=raw_trino_view_access,
     )
     placeholders = find_placeholders(parsed)
     if placeholders.has_filters:

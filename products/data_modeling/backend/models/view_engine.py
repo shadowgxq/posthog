@@ -16,7 +16,6 @@ CONNECTION_SAVE_REASON = (
 CONNECTION_MATERIALIZE_REASON = "Views that run on a direct connection cannot be materialized yet."
 CONNECTION_LINEAGE_REASON = "Views that run on a direct connection have no lineage yet."
 CONNECTION_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs on a direct connection."
-CONNECTION_TRINO_REFERENCE_REASON = "Queries on hosted Trino cannot reference a view that runs on a direct connection."
 
 _ANNOTATED_QUERY_KEYS = {
     "executionTarget": "engine_execution_target",
@@ -129,16 +128,6 @@ class ViewEngine:
         return self._capability(
             raw_trino=RAW_TRINO_CLICKHOUSE_REFERENCE_REASON, connection=CONNECTION_CLICKHOUSE_REFERENCE_REASON
         )
-
-    @property
-    def referenceable_from_trino(self) -> ViewCapability:
-        """Whether a query on hosted Trino can read the view by name.
-
-        Raw Trino SQL cannot read a HogQL view. The expansion refuses that reference with its own reason.
-        """
-        if self.target == ViewEngineTarget.CONNECTION:
-            return ViewCapability(available=False, reason=CONNECTION_TRINO_REFERENCE_REASON)
-        return _AVAILABLE
 
     @property
     def column_source(self) -> ViewColumnSource:

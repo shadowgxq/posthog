@@ -21,15 +21,6 @@ def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
     validate(team, user)
 
 
-def has_managed_trino_raw_access(team: Team, user: User | None) -> bool:
-    """Whether the caller may run SQL on the organization's warehouse credential, raw or through a raw view."""
-    from products.managed_warehouse.backend.query_execution import (
-        has_managed_trino_raw_access as has_access,  # noqa: PLC0415 -- query execution is optional during Django startup
-    )
-
-    return has_access(team, user)
-
-
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
     from products.managed_warehouse.backend.query_execution import (
         validate_managed_trino_query as validate,  # noqa: PLC0415 -- query compilation is optional during Django startup
@@ -48,6 +39,7 @@ def execute_managed_trino_query(
     timings: HogQLTimings,
     limit_context: LimitContext | None,
     canary: bool = False,
+    raw_trino_view_access: bool = False,
 ) -> HogQLQueryResponse:
     from products.managed_warehouse.backend.query_execution import (
         execute_managed_trino_query as execute,  # noqa: PLC0415 -- query compilation is optional during Django startup
@@ -62,6 +54,7 @@ def execute_managed_trino_query(
         timings=timings,
         limit_context=limit_context,
         canary=canary,
+        raw_trino_view_access=raw_trino_view_access,
     )
 
 

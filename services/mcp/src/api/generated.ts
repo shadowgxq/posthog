@@ -34431,8 +34431,6 @@ export namespace Schemas {
       lineage: ViewCapability;
       /** Whether HogQL queries on ClickHouse can read from this view by name. */
       referenceable_from_clickhouse: ViewCapability;
-      /** Whether queries on hosted Trino can read from this view by name. */
-      referenceable_from_trino: ViewCapability;
       /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
        *
        * * `clickhouse_probe` - ClickHouse probe

@@ -8,12 +8,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
-from posthog.hogql.database.raw_trino_view import RawTrinoViewTable
+from posthog.hogql.database.raw_trino_view import RawTrinoViewExpansion, RawTrinoViewTable
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
-from posthog.hogql.errors import ImpossibleASTError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -285,8 +285,20 @@ class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
 
+    _visit_depth: int = 0
+    _raw_views: RawTrinoViewExpansion | None = None
+
     def visit(self, node: ast.AST | None) -> str:
-        sql = super().visit(node)
+        outermost = self._visit_depth == 0
+        self._visit_depth += 1
+        try:
+            sql = super().visit(node)
+        finally:
+            self._visit_depth -= 1
+        if outermost and self._raw_views is not None:
+            if self.stack:
+                raise QueryError("Raw Trino views can only be read by a top-level query.")
+            sql = self._raw_views.with_ctes(sql)
         if len(sql) > MAX_TRINO_SQL_LENGTH:
             self._unsupported(
                 "TRINO_SQL_SIZE_LIMIT",
@@ -4389,8 +4401,10 @@ class TrinoPrinter(PostgresPrinter):
     def _print_table(self, table: "Table") -> str:
         if isinstance(table, NumbersTable):
             return "UNNEST"
-        if isinstance(table, TrinoUnnestTable | RawTrinoViewTable):
+        if isinstance(table, TrinoUnnestTable):
             return table.to_printed_trino(self.context)
+        if isinstance(table, RawTrinoViewTable):
+            return self._print_raw_view(table)
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:
             return ".".join(escape_trino_identifier(part) for part in locator)
@@ -4398,6 +4412,20 @@ class TrinoPrinter(PostgresPrinter):
             "TRINO_TABLE_LOCATOR_MISSING",
             f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",
         )
+
+    def _print_raw_view(self, table: RawTrinoViewTable) -> str:
+        """Point the reference at a CTE that `visit` puts before the query's own CTEs.
+
+        A subquery in place would see the query's CTEs, so a CTE that shares a name with a table the view reads would
+        replace that table.
+        """
+        if self.context.raw_trino_view_catalog is None:
+            raise ExposedHogQLError(
+                f"View '{table.name}' runs raw Trino SQL. Open it from the SQL editor while signed in."
+            )
+        if self._raw_views is None:
+            self._raw_views = RawTrinoViewExpansion(self.context.raw_trino_view_catalog)
+        return self._raw_views.hoist_view(table.name or "")
 
     def visit_lambda(self, node: ast.Lambda) -> str:
         identifiers = [self._print_identifier(arg) for arg in node.args]

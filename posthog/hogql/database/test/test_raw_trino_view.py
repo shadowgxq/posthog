@@ -10,7 +10,6 @@ from posthog.hogql.database.raw_trino_view import (
     RawTrinoView,
     RawTrinoViewCatalog,
     RawTrinoViewTable,
-    RefusedRawTrinoViewTable,
     expand_raw_trino_view_references,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -20,8 +19,8 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.schema_enums import PersonsOnEventsMode
 
 
-def _catalog(views: dict[str, str], **names: frozenset[str]) -> RawTrinoViewCatalog:
-    return RawTrinoViewCatalog(views={name: RawTrinoView(name=name, sql=sql) for name, sql in views.items()}, **names)
+def _catalog(views: dict[str, str]) -> RawTrinoViewCatalog:
+    return RawTrinoViewCatalog(views={name: RawTrinoView(name=name, sql=sql) for name, sql in views.items()})
 
 
 CATALOG = _catalog(
@@ -37,19 +36,13 @@ CATALOG = _catalog(
         "c": "SELECT * FROM d",
         "d": "SELECT 5 AS z",
         "self_alias": "SELECT 1 AS self_alias FROM d",
-        "reads_secret": "SELECT * FROM secret",
-        "reads_hogql": "SELECT * FROM hogql_view",
-        "reads_gone": "SELECT * FROM gone",
         "reads_real": "SELECT * FROM real_table",
         "other.daily": "SELECT 6 AS w",
         "Mixed": "SELECT 7 AS m",
         "mixed": "SELECT 8 AS m",
         "reads_mixed": "SELECT * FROM mixed",
         "uses_paren": "SELECT h.h FROM (helper) h",
-    },
-    denied_names=frozenset({"secret"}),
-    hogql_view_names=frozenset({"hogql_view"}),
-    deleted_names=frozenset({"gone"}),
+    }
 )
 
 DAILY = "__ph_rv_0 AS (\nSELECT 1 AS x\n)"
@@ -163,10 +156,6 @@ def test_hoists_each_referenced_view_once(sql: str, expected: str) -> None:
     [
         ("WITH RECURSIVE t(n) AS (SELECT 1) SELECT * FROM t, daily", CATALOG, "WITH RECURSIVE"),
         ("SELECT * FROM __ph_rv_0", CATALOG, "reserved"),
-        ("SELECT * FROM secret", CATALOG, "don't have access to view 'secret'"),
-        ("SELECT * FROM reads_secret", CATALOG, "don't have access to view 'secret'"),
-        ("SELECT * FROM reads_hogql", CATALOG, "'hogql_view' is a HogQL view"),
-        ("SELECT * FROM reads_gone", CATALOG, "reads view 'gone', which was deleted"),
         ("SELECT FROM WHERE daily", CATALOG, "Could not parse the query to expand view 'daily'"),
         ("SELECT * FROM mixed", CATALOG, "Several views are named 'mixed' when case is ignored"),
         ("SELECT * FROM reads_mixed", CATALOG, "Several views are named 'mixed' when case is ignored"),
@@ -204,15 +193,11 @@ def test_many_leading_comments_do_not_backtrack() -> None:
     )
 
 
-def _context(
-    catalog: RawTrinoViewCatalog | None, table_class: type[RawTrinoViewTable] = RawTrinoViewTable
-) -> HogQLContext:
+def _context(catalog: RawTrinoViewCatalog | None) -> HogQLContext:
     database = Database(include_posthog_tables=False)
-    for name in ["daily", "reports.daily", "a", "reads_hogql", "Mixed"]:
+    for name in ["daily", "reads_orders"]:
         database.tables.add_child(
-            TableNode.create_nested_for_chain(
-                name.split("."), table=table_class(name=name, fields={"x": IntegerDatabaseField(name="x")})
-            )
+            TableNode(name=name, table=RawTrinoViewTable(name=name, fields={"x": IntegerDatabaseField(name="x")}))
         )
     database._raw_trino_view_catalog = catalog
     return HogQLContext(
@@ -226,44 +211,31 @@ def _context(
 @pytest.mark.parametrize(
     "query,expected",
     [
-        ("SELECT x FROM daily", 'SELECT "daily"."x" FROM (\nSELECT 1 AS x\n) AS "daily"'),
         (
-            "SELECT x FROM reports.daily",
-            'SELECT "reports__daily"."x" FROM (\nSELECT 2 AS y\n) AS "reports__daily"',
+            "WITH orders AS (SELECT 9 AS x) SELECT orders.x FROM orders JOIN reads_orders ON true",
+            'WITH __ph_rv_0 AS (\nSELECT * FROM orders\n), "orders" AS (SELECT 9 AS "x") '
+            'SELECT "orders"."x" FROM "orders" JOIN __ph_rv_0 AS "reads_orders" ON true',
         ),
         (
-            "SELECT x FROM a",
-            'SELECT "a"."x" FROM (\nWITH __ph_rv_0 AS (\nSELECT 5 AS z\n), '
-            '__ph_rv_1 AS (\nSELECT * FROM __ph_rv_0 AS "d"\n), '
-            '__ph_rv_2 AS (\nSELECT * FROM __ph_rv_0 AS "d"\n)\n'
-            'SELECT * FROM __ph_rv_1 AS "b" JOIN __ph_rv_2 AS "c" ON true\n) AS "a"',
+            "SELECT d.x FROM daily d JOIN daily ON true",
+            f'WITH {DAILY}\nSELECT "d"."x" FROM __ph_rv_0 AS "d" JOIN __ph_rv_0 AS "daily" ON true',
         ),
-        ("SELECT x FROM Mixed", 'SELECT "Mixed"."x" FROM (\nSELECT 7 AS m\n) AS "Mixed"'),
     ],
 )
-def test_trino_printer_inlines_raw_trino_views(query: str, expected: str) -> None:
+def test_trino_printer_hoists_raw_trino_views_before_the_query_ctes(query: str, expected: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(query), _context(CATALOG), "trino")
     assert sql == expected
 
 
 @pytest.mark.parametrize(
-    "catalog,table_class,error",
+    "catalog,query,error",
     [
-        (CATALOG, RefusedRawTrinoViewTable, "Open it from the SQL editor while signed in"),
-        (None, RawTrinoViewTable, "which this query cannot read"),
-        (CATALOG, RawTrinoViewTable, "'hogql_view' is a HogQL view"),
+        (None, "SELECT x FROM daily", "Open it from the SQL editor while signed in"),
+        (CATALOG, "WITH RECURSIVE t AS (SELECT 1 AS n) SELECT x FROM t, daily", "WITH RECURSIVE"),
     ],
 )
 def test_trino_printer_refuses_raw_trino_views_it_cannot_expand(
-    catalog: RawTrinoViewCatalog | None, table_class: type[RawTrinoViewTable], error: str
+    catalog: RawTrinoViewCatalog | None, query: str, error: str
 ) -> None:
-    query = "SELECT x FROM reads_hogql" if table_class is RawTrinoViewTable and catalog else "SELECT x FROM daily"
     with pytest.raises((ExposedHogQLError, QueryError), match=error):
-        prepare_and_print_ast(parse_select(query), _context(catalog, table_class), "trino")
-
-
-@pytest.mark.parametrize("dialect", ["clickhouse", "postgres", "duckdb"])
-def test_other_dialects_refuse_raw_trino_views(dialect: str) -> None:
-    table = RawTrinoViewTable(name="daily", fields={})
-    with pytest.raises(QueryError, match="raw Trino SQL"):
-        getattr(table, f"to_printed_{dialect}")(HogQLContext())
+        prepare_and_print_ast(parse_select(query), _context(catalog), "trino")

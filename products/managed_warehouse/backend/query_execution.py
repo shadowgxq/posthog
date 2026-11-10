@@ -9,11 +9,7 @@ from posthog.schema import HogQLQuery, HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.raw_trino_view import (
-    RawTrinoViewCatalog,
-    RawTrinoViewMode,
-    expand_raw_trino_view_references,
-)
+from posthog.hogql.database.raw_trino_view import RawTrinoViewCatalog, expand_raw_trino_view_references
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -51,14 +47,6 @@ def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
         )
     if not UserAccessControl(user=user, team=team).has_project_access:
         raise ExposedHogQLError("You do not have access to this project.")
-
-
-def has_managed_trino_raw_access(team: Team, user: User | None) -> bool:
-    try:
-        validate_managed_trino_raw_access(team, user)
-    except ExposedHogQLError:
-        return False
-    return True
 
 
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
@@ -103,7 +91,7 @@ def raw_trino_view_catalog(
         user=user,
         user_access_control=user_access_control,
         trigger="trino_raw",
-        raw_trino_view_mode=RawTrinoViewMode.EXPAND,
+        raw_trino_view_access=True,
     )
     return database.raw_trino_view_catalog
 
@@ -118,6 +106,7 @@ def execute_managed_trino_query(
     timings: HogQLTimings,
     limit_context: LimitContext | None,
     canary: bool = False,
+    raw_trino_view_access: bool = False,
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
@@ -150,6 +139,7 @@ def execute_managed_trino_query(
                     limit_top_select=True,
                     limit_context=limit_context,
                     select_transform=paginate,
+                    raw_trino_view_access=raw_trino_view_access,
                 )
         except TrinoTargetUnavailable as error:
             raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error

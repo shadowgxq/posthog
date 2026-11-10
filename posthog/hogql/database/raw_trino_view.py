@@ -1,5 +1,4 @@
 from collections.abc import Mapping
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import FunctionCallTable
@@ -20,12 +19,6 @@ MAX_VIEW_DEPTH = 32
 MAX_EXPANDED_SQL_LENGTH = 1_000_000
 
 
-class RawTrinoViewMode(StrEnum):
-    EXPAND = "expand"
-    # Raw view SQL runs on the organization's warehouse credential, so a caller that may not run raw SQL gets an error.
-    REFUSE = "refuse"
-
-
 @frozen
 class RawTrinoView:
     name: str
@@ -34,12 +27,9 @@ class RawTrinoView:
 
 @frozen
 class RawTrinoViewCatalog:
-    """The raw Trino views a caller can read, keyed by exact view name. The name sets hold lowercase names."""
+    """The raw Trino views a caller can read, keyed by exact view name."""
 
     views: Mapping[str, RawTrinoView]
-    denied_names: frozenset[str] = frozenset()
-    hogql_view_names: frozenset[str] = frozenset()
-    deleted_names: frozenset[str] = frozenset()
 
 
 def raw_trino_view_sql(saved_query_json: object) -> str:
@@ -126,7 +116,7 @@ def _has_alias(table: "exp.Table") -> bool:
         node = node.parent
 
 
-class _Expansion:
+class RawTrinoViewExpansion:
     """One expansion run. Each view becomes one CTE, so a view read twice or along two paths is hoisted once."""
 
     def __init__(self, catalog: RawTrinoViewCatalog) -> None:
@@ -144,21 +134,29 @@ class _Expansion:
             self.views[key] = view
         for key in self.ambiguous_names:
             del self.views[key]
-        self.lookup_words = {
-            word
-            for name in (
-                *self.views,
-                *self.ambiguous_names,
-                *catalog.denied_names,
-                *catalog.hogql_view_names,
-                *catalog.deleted_names,
-            )
-            for word in (name, *name.split("."))
-        }
+        self.lookup_words = {word for name in (*self.views, *self.ambiguous_names) for word in (name, *name.split("."))}
 
-    def statement(self, sql: str, *, owner: RawTrinoView | None = None) -> str:
+    def statement(self, sql: str) -> str:
+        """Hoist the views a raw Trino statement reads."""
         tokens = _lex(sql)
-        edits = self._rewrite(sql, tokens, path=[owner.name] if owner else [])
+        return self._with_ctes(sql, tokens, self._rewrite(sql, tokens, path=[]))
+
+    def hoist_view(self, name: str) -> str:
+        """The CTE name for a view that HogQL resolved by exact name. Pass the printed statement to `with_ctes` after."""
+        view = self.catalog.views.get(name)
+        if view is None:
+            raise QueryError(f"Unknown raw Trino view '{name}'.")
+        return self._hoist(view, [])
+
+    def with_ctes(self, sql: str) -> str:
+        return self._with_ctes(sql, _lex(sql), [])
+
+    def _with_ctes(self, sql: str, tokens: list["DialectToken"], edits: list[_Edit]) -> str:
+        """Put the hoisted views first in the statement's WITH.
+
+        A Trino WITH member sees only the members before it, so a CTE of the statement cannot shadow a table a view
+        reads.
+        """
         if not self.ctes:
             return _apply(sql, edits)
 
@@ -172,10 +170,10 @@ class _Expansion:
                 raise ExposedHogQLError(
                     "A WITH RECURSIVE query cannot read a saved view. Copy the view's SQL into the query instead."
                 )
-            edits.append(_Edit(start=first.end + 1, end=first.end + 1, text=f" {ctes},"))
+            edit = _Edit(start=first.end + 1, end=first.end + 1, text=f" {ctes},")
         else:
-            edits.append(_Edit(start=first.start, end=first.start, text=f"WITH {ctes}\n"))
-        return _apply(sql, edits)
+            edit = _Edit(start=first.start, end=first.start, text=f"WITH {ctes}\n")
+        return _apply(sql, [*edits, edit])
 
     def _rewrite(self, sql: str, tokens: list["DialectToken"], *, path: list[str]) -> list[_Edit]:
         from sqlglot import exp, parse_one  # noqa: PLC0415 -- load dialect grammars only for Trino queries
@@ -217,7 +215,6 @@ class _Expansion:
                     )
                 view = self.views.get(key)
                 if view is None:
-                    self._refuse_unreadable(key, parts[-1].name, path=path, qualified=len(parts) > 1)
                     continue
                 start, stop = parts[0].meta.get("start"), parts[-1].meta.get("end")
                 if start is None or stop is None:
@@ -257,25 +254,15 @@ class _Expansion:
         if self.size > MAX_EXPANDED_SQL_LENGTH:
             raise ExposedHogQLError("The saved views this query reads expand to too much SQL. Read fewer views.")
 
-    def _refuse_unreadable(self, key: str, name: str, *, path: list[str], qualified: bool) -> None:
-        if key in self.catalog.denied_names:
-            raise ExposedHogQLError(f"You don't have access to view '{name}'.")
-        if key in self.catalog.hogql_view_names:
-            raise ExposedHogQLError(
-                f"'{name}' is a HogQL view, so raw Trino SQL cannot read it. Open it with Send raw query turned off."
-            )
-        # At the top level the name passes through, so a real table that shares a deleted view's name stays readable.
-        if path and not qualified and key in self.catalog.deleted_names:
-            raise ExposedHogQLError(f"View '{path[-1]}' reads view '{name}', which was deleted.")
-
     def _hoist(self, view: RawTrinoView, path: list[str]) -> str:
         key = view.name.lower()
         lowered = [name.lower() for name in path]
         if key in lowered:
             cycle = " -> ".join([*path[lowered.index(key) :], view.name])
             raise ExposedHogQLError(f"Views reference each other in a cycle: {cycle}.")
-        if key in self.cte_names:
-            return self.cte_names[key]
+        # HogQL tells views apart by case, so the CTE is keyed by the exact name.
+        if view.name in self.cte_names:
+            return self.cte_names[view.name]
         if len(path) >= MAX_VIEW_DEPTH:
             raise ExposedHogQLError(f"Views are nested more than {MAX_VIEW_DEPTH} levels deep: {' -> '.join(path)}.")
 
@@ -284,7 +271,7 @@ class _Expansion:
         self._grow(len(expanded))
         cte_name = f"{VIEW_CTE_PREFIX}{len(self.ctes)}"
         self.ctes.append(f"{cte_name} AS (\n{expanded}\n)")
-        self.cte_names[key] = cte_name
+        self.cte_names[view.name] = cte_name
         return cte_name
 
 
@@ -294,35 +281,16 @@ def expand_raw_trino_view_references(sql: str, catalog: RawTrinoViewCatalog) -> 
     The original text is kept. Only the table references change, so comments, literals and formatting reach Trino as
     written.
     """
-    return _Expansion(catalog).statement(sql)
-
-
-def expand_raw_trino_view(name: str, catalog: RawTrinoViewCatalog) -> str:
-    """The view's SQL as a standalone statement, with the views it reads hoisted into its leading WITH.
-
-    HogQL already resolved the exact name, so the lookup keeps its case.
-    """
-    view = catalog.views.get(name)
-    if view is None:
-        raise QueryError(f"Unknown raw Trino view '{name}'.")
-    return _Expansion(catalog).statement(_clean_body(view), owner=view)
+    return RawTrinoViewExpansion(catalog).statement(sql)
 
 
 class RawTrinoViewTable(FunctionCallTable):
-    """A saved view whose SQL is raw Trino SQL. Only the Trino printer can inline it."""
+    """A saved view whose SQL is raw Trino SQL. Only the Trino printer can read it, as a hoisted CTE."""
 
     requires_args: bool = False
 
     def to_printed_hogql(self) -> str:
         return escape_hogql_identifier(self.name or "")
-
-    def to_printed_trino(self, context: "HogQLContext") -> str:
-        catalog = context.raw_trino_view_catalog
-        if context.database is not None and context.database.raw_trino_view_catalog is not None:
-            catalog = context.database.raw_trino_view_catalog
-        if catalog is None:
-            raise QueryError(f"View '{self.name}' runs raw Trino SQL, which this query cannot read.")
-        return f"(\n{expand_raw_trino_view(self.name or '', catalog)}\n)"
 
     def _refuse(self, dialect: str) -> str:
         raise QueryError(f"View '{self.name}' runs raw Trino SQL, so it cannot be printed into {dialect} SQL.")
@@ -335,10 +303,3 @@ class RawTrinoViewTable(FunctionCallTable):
 
     def to_printed_duckdb(self, context: "HogQLContext") -> str:
         return self._refuse("DuckDB")
-
-
-class RefusedRawTrinoViewTable(RawTrinoViewTable):
-    """A raw Trino view that this caller may not run, kept in the catalog so a reference fails with a clear reason."""
-
-    def to_printed_trino(self, context: "HogQLContext") -> str:
-        raise ExposedHogQLError(f"View '{self.name}' runs raw Trino SQL. Open it from the SQL editor while signed in.")

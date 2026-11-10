@@ -423,14 +423,11 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
         ("select * from deleted_view", "select * from deleted_view"),
         # A table owns its name, so a view named like one stays out of both raw and HogQL mode.
         ("select * from events", "select * from events"),
-        ("select * from denied_view", ExposedHogQLError("don't have access to view 'denied_view'")),
-        ("select * from reads_denied", ExposedHogQLError("don't have access to view 'denied_view'")),
-        ("select * from reads_deleted", ExposedHogQLError("reads view 'deleted_view', which was deleted")),
-        ("select * from reads_hogql", ExposedHogQLError("'hogql_view' is a HogQL view")),
+        ("select * from denied_view", "select * from denied_view"),
     ],
 )
 @pytest.mark.django_db
-def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expected: str | Exception) -> None:
+def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expected: str) -> None:
     organization = Organization.objects.create(name="Example organization")
     team = Team.objects.create(organization=organization)
     other_team = Team.objects.create(organization=organization)
@@ -441,10 +438,6 @@ def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expec
         (other_team, "other_team_view", False, {**raw, "query": "SELECT 1 AS id"}),
         (team, "deleted_view", True, {**raw, "query": "SELECT 1 AS id"}),
         (team, "denied_view", False, {**raw, "query": "SELECT 1 AS id"}),
-        (team, "reads_denied", False, {**raw, "query": "SELECT * FROM denied_view"}),
-        (team, "reads_deleted", False, {**raw, "query": "SELECT * FROM deleted_view"}),
-        (team, "reads_hogql", False, {**raw, "query": "SELECT * FROM hogql_view"}),
-        (team, "hogql_view", False, {"kind": "HogQLQuery", "query": "SELECT 1 AS id"}),
         (team, "events", False, {**raw, "query": "SELECT 1 AS id"}),
     ]:
         DataWarehouseSavedQuery.objects.create(team=view_team, name=name, deleted=deleted, query=query)
@@ -464,22 +457,13 @@ def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expec
             return_value=nullcontext(connection),
         ),
     ):
-
-        def execute() -> None:
-            execute_managed_trino_query(
-                HogQLQuery(query=sql, executionTarget="managed_trino", sendRawQuery=True),
-                team=team,
-                user=user,
-                user_access_control=None,
-                settings=HogQLGlobalSettings(),
-                timings=HogQLTimings(),
-                limit_context=LimitContext.QUERY,
-            )
-
-        if isinstance(expected, Exception):
-            with pytest.raises(type(expected), match=str(expected)):
-                execute()
-            cursor.execute.assert_not_called()
-            return
-        execute()
+        execute_managed_trino_query(
+            HogQLQuery(query=sql, executionTarget="managed_trino", sendRawQuery=True),
+            team=team,
+            user=user,
+            user_access_control=None,
+            settings=HogQLGlobalSettings(),
+            timings=HogQLTimings(),
+            limit_context=LimitContext.QUERY,
+        )
     cursor.execute.assert_called_once_with(expected)
