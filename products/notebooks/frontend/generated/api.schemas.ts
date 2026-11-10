@@ -743,6 +743,8 @@ export interface NotebookApi {
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
     _create_in_folder?: string
+    /** Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry. */
+    move_to_folder?: string
 }
 
 /**
@@ -797,6 +799,8 @@ export interface PatchedNotebookApi {
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
     _create_in_folder?: string
+    /** Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry. */
+    move_to_folder?: string
 }
 
 export interface NotebookCollabCursorApi {

@@ -236,6 +236,12 @@ export const DashboardsCreateBody = () => zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to move this dashboard into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The dashboard keeps its own name. Has no effect when the dashboard has no file system entry."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

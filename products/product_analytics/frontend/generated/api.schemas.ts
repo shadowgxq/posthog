@@ -9397,6 +9397,8 @@ export interface InsightApi {
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings: _InsightResultWarningsApi | null
     _create_in_folder?: string
+    /** Project-tree folder to move this insight into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The insight keeps its own name. Has no effect when the insight has no file system entry. */
+    move_to_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
     readonly filter_override_context: InsightFilterOverrideContextApi | null
@@ -9842,6 +9844,8 @@ export interface PatchedInsightApi {
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings?: _InsightResultWarningsApi | null
     _create_in_folder?: string
+    /** Project-tree folder to move this insight into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The insight keeps its own name. Has no effect when the insight has no file system entry. */
+    move_to_folder?: string
     readonly alerts?: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
     readonly filter_override_context?: InsightFilterOverrideContextApi | null

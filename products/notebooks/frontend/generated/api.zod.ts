@@ -132,6 +132,12 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -191,6 +197,12 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -250,6 +262,12 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -471,6 +489,12 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -558,6 +582,12 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -617,6 +647,12 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**
@@ -676,6 +712,12 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled\/Dashboards\/Growth'. Separate nested folders with '\/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry."
+        ),
 })
 
 /**

@@ -74,6 +74,9 @@ const dashboardCreate = (): ToolBase<
         if (params.delete_insights !== undefined) {
             body['delete_insights'] = params.delete_insights
         }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
+        }
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,

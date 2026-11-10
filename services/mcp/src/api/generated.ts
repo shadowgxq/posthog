@@ -12563,6 +12563,8 @@ export namespace Schemas {
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings: _InsightResultWarnings | null;
       _create_in_folder?: string;
+      /** Project-tree folder to move this insight into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The insight keeps its own name. Has no effect when the insight has no file system entry. */
+      move_to_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
       readonly filter_override_context: InsightFilterOverrideContext | null;
@@ -31979,6 +31981,8 @@ export namespace Schemas {
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
       _create_in_folder?: string;
+      /** Project-tree folder to move this dashboard into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The dashboard keeps its own name. Has no effect when the dashboard has no file system entry. */
+      move_to_folder?: string;
     }
 
     export interface DashboardActivitySummary {
@@ -70031,6 +70035,8 @@ export namespace Schemas {
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
       _create_in_folder?: string;
+      /** Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry. */
+      move_to_folder?: string;
     }
 
     export interface NotebookCellLastRun {
@@ -86576,6 +86582,8 @@ export namespace Schemas {
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings?: _InsightResultWarnings | null;
       _create_in_folder?: string;
+      /** Project-tree folder to move this insight into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The insight keeps its own name. Has no effect when the insight has no file system entry. */
+      move_to_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
       readonly filter_override_context?: InsightFilterOverrideContext | null;
@@ -87597,6 +87605,8 @@ export namespace Schemas {
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
       _create_in_folder?: string;
+      /** Project-tree folder to move this notebook into, e.g. 'Experiments' or 'Unfiled/Dashboards/Growth'. Separate nested folders with '/'; folders that do not exist yet are created. The notebook keeps its own name. Has no effect when the notebook has no file system entry. */
+      move_to_folder?: string;
     }
 
     export interface PatchedObjectMediaPreview {

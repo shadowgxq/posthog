@@ -6563,6 +6563,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         _create_in_folder?: string | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        move_to_folder?: string | undefined;
     };
     export type MetricsFilterOp = "eq" | "neq" | "regex" | "not_regex";
     export type MetricsAttributeScope = "resource" | "attribute" | "auto";
@@ -12999,6 +13003,10 @@ export namespace Schemas {
          * Simplified serializer to speed response times when loading large amounts of objects.
          */
         _create_in_folder?: string | undefined;
+        /**
+         * Simplified serializer to speed response times when loading large amounts of objects.
+         */
+        move_to_folder?: string | undefined;
         alerts: Array<unknown>;
         /**
          * Resolved dashboard and tile filter layers used to explain filter precedence in the UI.
@@ -16216,6 +16224,7 @@ export namespace Schemas {
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
+        move_to_folder: string;
         alerts: Array<unknown>;
         filter_override_context: InsightFilterOverrideContext | null;
         last_viewed_at: string | null;
