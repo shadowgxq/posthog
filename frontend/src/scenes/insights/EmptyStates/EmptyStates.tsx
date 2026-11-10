@@ -62,7 +62,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
-import { QuillInsightEmptyStateActions } from './QuillInsightEmptyStateActions'
+import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -128,18 +128,27 @@ export function InsightEmptyState({
     detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
 
     if (quillSurface) {
+        const quillMedia = (
+            <IconStack>
+                <IconStackItem color="var(--color-product-product-analytics-light)">
+                    {iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : <IconArchive />)}
+                </IconStackItem>
+            </IconStack>
+        )
         return (
             <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
-                <EmptyHeader>
-                    <IconStack>
-                        <IconStackItem color="var(--color-product-product-analytics-light)">
-                            {iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : <IconArchive />)}
-                        </IconStackItem>
-                    </IconStack>
-                    <EmptyTitle>{heading}</EmptyTitle>
-                    {detail && <EmptyDescription>{detail}</EmptyDescription>}
-                </EmptyHeader>
-                {!hasCustomCopy && <QuillInsightEmptyStateActions />}
+                {hasCustomCopy ? (
+                    <EmptyHeader>
+                        {quillMedia}
+                        <EmptyTitle>{heading}</EmptyTitle>
+                        {detail && <EmptyDescription>{detail}</EmptyDescription>}
+                    </EmptyHeader>
+                ) : (
+                    <QuillInsightEmptyStateNextSteps defaultDetail={detail}>
+                        {quillMedia}
+                        <EmptyTitle>{heading}</EmptyTitle>
+                    </QuillInsightEmptyStateNextSteps>
+                )}
             </Empty>
         )
     }
