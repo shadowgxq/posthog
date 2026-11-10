@@ -9,6 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { MCPDashboardSection } from '~/queries/schema/schema-general'
+
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
@@ -27,43 +29,37 @@ import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
-import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
-        kpis,
-        kpisLoading,
-        users,
-        usersLoading,
+        dashboardLoading,
+        headlineKpis,
+        periodTotals,
         intentClusterCount,
         intentTopics,
         intentTopicsLoading,
         intentTopicsFailed,
         notableSessions,
-        sessionRowsLoading,
         harnessRows,
-        harnessRowsLoading,
         modelRows,
-        modelRowsLoading,
         hasModelData,
         protocolVersionRows,
-        protocolVersionRowsLoading,
         hasProtocolVersionData,
         dailyActivity,
-        activityRowsLoading,
         activityIncompleteTail,
         kpiIncompleteTail,
         toolDailySeries,
-        toolDailyRowsLoading,
         toolRows,
-        toolRowsLoading,
         dateFilter,
         interval,
         queryFilters,
         canShowFeedback,
         feedbackContextKey,
+        failedLoads,
+        loadingSections,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadIntentTopics } =
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections, loadIntentTopics } =
         useActions(mcpDashboardOverviewLogic)
     const { allCardsHidden, availableCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
@@ -93,18 +89,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={
-                    kpisLoading ||
-                    usersLoading ||
-                    sessionRowsLoading ||
-                    harnessRowsLoading ||
-                    modelRowsLoading ||
-                    protocolVersionRowsLoading ||
-                    activityRowsLoading ||
-                    toolDailyRowsLoading ||
-                    toolRowsLoading ||
-                    intentTopicsLoading
-                }
+                refreshing={dashboardLoading || intentTopicsLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -150,11 +135,15 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                     <KpiTiles
-                        kpis={kpis}
-                        users={users}
+                        kpis={headlineKpis}
+                        users={periodTotals.users}
                         intentClusterCount={intentClusterCount}
-                        kpisLoading={kpisLoading}
-                        usersLoading={usersLoading}
+                        kpisLoading={!!loadingSections.kpis}
+                        usersLoading={!!loadingSections.periodTotals}
+                        kpisFailed={failedLoads.kpis}
+                        usersFailed={failedLoads.periodTotals}
+                        onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
+                        onRetryUsers={() => loadSections([MCPDashboardSection.PeriodTotals])}
                         showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                         theme={theme}
                         interval={interval}
@@ -183,7 +172,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             {showActivity && (
                                 <ActivityChart
                                     daily={dailyActivity}
-                                    loading={activityRowsLoading}
+                                    loading={!!loadingSections.activityRows}
+                                    failed={failedLoads.activityRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.ActivityRows])}
                                     theme={theme}
                                     timezone={timezone}
                                     interval={interval}
@@ -193,7 +184,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             {showToolUsage && (
                                 <ToolUsageChart
                                     data={toolDailySeries}
-                                    loading={toolDailyRowsLoading}
+                                    loading={!!loadingSections.toolDailyRows}
+                                    failed={failedLoads.toolDailyRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.ToolDailyRows])}
                                     theme={theme}
                                     timezone={timezone}
                                     interval={interval}
@@ -202,7 +195,13 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         </CardRow>
                         <CardRow twoColumnsClassName="@min-[48rem]/mcp-overview:grid-cols-2">
                             {showHarness && (
-                                <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                                <HarnessBarChart
+                                    rows={harnessRows}
+                                    loading={!!loadingSections.harnessRows}
+                                    failed={failedLoads.harnessRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
+                                    theme={theme}
+                                />
                             )}
                             {showModel && <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />}
                         </CardRow>
@@ -216,14 +215,22 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
                         {showToolErrors && (
                             <ToolErrorRateChart
-                                rows={toolRows}
-                                loading={toolRowsLoading}
+                                rows={rankToolsByErrorRate(toolRows)}
+                                emptyMessage={rankedToolsEmptyMessage(toolRows)}
+                                loading={!!loadingSections.toolRows}
+                                failed={failedLoads.toolRows}
+                                onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                                 theme={theme}
                                 onToolClick={openToolReport}
                             />
                         )}
                         {showNotableSessions && (
-                            <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                            <NotableSessionsTable
+                                sessions={notableSessions}
+                                loading={!!loadingSections.sessionRows}
+                                failed={failedLoads.sessionRows}
+                                onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
+                            />
                         )}
                     </CardRow>
                 </section>
