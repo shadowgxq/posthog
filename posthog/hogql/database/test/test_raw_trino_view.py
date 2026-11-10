@@ -31,6 +31,7 @@ def _context(*, access: bool = True) -> HogQLContext:
         modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
         enable_select_queries=True,
         limit_top_select=False,
+        use_new_events_schema=False,
     )
 
 
