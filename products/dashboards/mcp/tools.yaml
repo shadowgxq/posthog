@@ -450,7 +450,7 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, and filters. All viewers see the description at the top of the dashboard. If you change it,
+            status, tags, and filters. Set `move_to_folder` to file the dashboard in a project folder. All viewers see the description at the top of the dashboard. If you change it,
             rewrite it in one or two short sentences, or clear it when the name already says it. Do not append revision
             history or agent notes. After you create or add insight tiles, call dashboard-get to get their tile IDs,
             then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This

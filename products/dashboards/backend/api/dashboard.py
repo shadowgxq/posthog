@@ -56,6 +56,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.api.file_system.move_to_folder import move_to_folder_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -1923,6 +1924,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         help_text="When deleting, also delete insights that are only on this dashboard.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    move_to_folder = move_to_folder_field("dashboard")
 
     class Meta:
         model = Dashboard
@@ -1933,6 +1935,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "use_dashboard",
             "delete_insights",
             "_create_in_folder",
+            "move_to_folder",
         ]
         read_only_fields = [
             "creation_mode",
@@ -2286,6 +2289,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+        move_to_folder = validated_data.pop("move_to_folder", None)
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
         group_display = validated_data.pop("group_display", None)
@@ -2458,6 +2462,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     team=instance.team,
                     request=self.context["request"],
                 )
+
+        if move_to_folder is not None:
+            instance.move_file_system_entry(move_to_folder, self.context["request"].user.id)
 
         # A rename re-paths the entry in a post-save signal, so the annotation bound before the save now
         # points at the old path. Dropping it sends `filed_entry` back to the file system for the new one.

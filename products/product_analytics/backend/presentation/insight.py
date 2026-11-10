@@ -50,6 +50,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
+from posthog.api.file_system.move_to_folder import move_to_folder_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -673,6 +674,7 @@ class InsightSerializer(InsightBasicSerializer):
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    move_to_folder = move_to_folder_field("insight")
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
         read_only=True,
@@ -720,6 +722,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_scan",
             "warnings",
             "_create_in_folder",
+            "move_to_folder",
             "alerts",
             "filter_override_context",
             "last_viewed_at",
@@ -943,6 +946,8 @@ class InsightSerializer(InsightBasicSerializer):
             key=lambda x: -1 if isinstance(x, str) else x["id"],
         )
 
+        move_to_folder = validated_data.pop("move_to_folder", None)
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
 
@@ -984,6 +989,8 @@ class InsightSerializer(InsightBasicSerializer):
                     )
 
             updated_insight = super().update(instance, validated_data)
+            if move_to_folder is not None:
+                updated_insight.move_file_system_entry(move_to_folder, self.context["request"].user.id)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on

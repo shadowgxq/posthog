@@ -32,6 +32,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
 
+from posthog.api.file_system.move_to_folder import move_to_folder_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -286,6 +287,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    move_to_folder = move_to_folder_field("notebook")
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -323,6 +325,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "parent_resource",
             "variables",
             "_create_in_folder",
+            "move_to_folder",
         ]
         read_only_fields = [
             "id",
@@ -430,6 +433,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return notebook
 
     def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
+        move_to_folder = validated_data.pop("move_to_folder", None)
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
@@ -438,6 +442,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
+            updated_notebook = locked_instance
             should_publish_update = False
 
             if validated_data.keys():
@@ -486,6 +491,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                             notify_team_id, notify_notebook_id, notify_version, diff=update_diff
                         )
                     )
+
+        if move_to_folder is not None:
+            updated_notebook.move_file_system_entry(move_to_folder, self.context["request"].user.id)
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 

@@ -11,6 +11,7 @@ from posthog.models.file_system.file_system import (
     delete_file,
     escape_path,
     join_path,
+    move_file_to_folder,
     split_path,
     surface_q,
 )
@@ -310,3 +311,41 @@ class TestFileSystemSurface(TestCase):
         self.assertEqual(FeatureFlag.get_file_system_unfiled(self.team, surface="web").count(), 0)
         # ...but it is still unfiled for desktop, whose tree doesn't contain it.
         self.assertEqual(FeatureFlag.get_file_system_unfiled(self.team, surface="desktop").count(), 1)
+
+    def test_move_file_to_folder_keeps_name_and_creates_parent_folders(self):
+        create_or_update_file(
+            team=self.team,
+            base_folder="Unfiled/Insights",
+            name="Weekly signups",
+            file_type="insight",
+            ref="abc123",
+            href="/insights/abc123",
+            meta={},
+        )
+
+        move_file_to_folder(
+            team=self.team, file_type="insight", ref="abc123", folder="Experiments/Q4", created_by_id=self.user.id
+        )
+
+        moved = FileSystem.objects.get(team=self.team, type="insight", ref="abc123")
+        self.assertEqual(moved.path, "Experiments/Q4/Weekly signups")
+        self.assertEqual(moved.depth, 3)
+        folder_paths = set(FileSystem.objects.filter(team=self.team, type="folder").values_list("path", flat=True))
+        self.assertEqual(folder_paths, {"Experiments", "Experiments/Q4"})
+
+    def test_move_file_to_folder_with_empty_folder_moves_to_root(self):
+        create_or_update_file(
+            team=self.team,
+            base_folder="Unfiled/Insights",
+            name="Weekly signups",
+            file_type="insight",
+            ref="abc123",
+            href="/insights/abc123",
+            meta={},
+        )
+
+        move_file_to_folder(team=self.team, file_type="insight", ref="abc123", folder="")
+
+        moved = FileSystem.objects.get(team=self.team, type="insight", ref="abc123")
+        self.assertEqual(moved.path, "Weekly signups")
+        self.assertEqual(moved.depth, 1)

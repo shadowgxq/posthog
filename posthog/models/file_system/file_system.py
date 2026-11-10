@@ -119,6 +119,42 @@ def create_or_update_file(
         )
 
 
+def move_file_to_folder(
+    *,
+    team: Team,
+    file_type: str,
+    ref: str,
+    folder: str,
+    created_by_id: Optional[int] = None,
+    surface: str = DEFAULT_SURFACE,
+):
+    """Re-parent an item's file system entries under `folder`, keeping each entry's own name."""
+    folder_segments = split_path(folder)
+    existing_files = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).filter(
+        ~Q(shortcut=True)
+    )
+    for existing in existing_files:
+        segments = [*folder_segments, split_path(existing.path)[-1]]
+        _assure_parent_folders(team, segments, created_by_id, surface)
+        existing.path = join_path(segments)
+        existing.depth = len(segments)
+        existing.save()
+
+
+def _assure_parent_folders(team: Team, segments: list[str], created_by_id: Optional[int], surface: str):
+    for depth in range(1, len(segments)):
+        parent_path = join_path(segments[:depth])
+        if not FileSystem.objects.filter(surface_q(surface), team=team, path=parent_path).exists():
+            FileSystem.objects.create(
+                team=team,
+                path=parent_path,
+                depth=depth,
+                type="folder",
+                created_by_id=created_by_id,
+                surface=surface,
+            )
+
+
 def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_SURFACE):
     count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
     if count > 0:

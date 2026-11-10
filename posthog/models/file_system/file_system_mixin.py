@@ -78,6 +78,19 @@ class FileSystemSyncMixin(Model):
             # Don't raise exceptions in signals
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
+    def move_file_system_entry(self, folder: str, created_by_id: Optional[int] = None) -> None:
+        from posthog.models.file_system.file_system import move_file_to_folder
+
+        fs_data = self.get_file_system_representation()
+        move_file_to_folder(
+            team=self.team,  # type: ignore
+            file_type=fs_data.type,
+            ref=fs_data.ref,
+            folder=folder,
+            created_by_id=created_by_id,
+            surface=fs_data.surface,
+        )
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet[Any]:
         """
