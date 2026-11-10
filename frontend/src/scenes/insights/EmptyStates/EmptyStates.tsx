@@ -12,11 +12,13 @@ import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem } from '@posthog/quill'
 
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
@@ -60,6 +62,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
+import { QuillInsightEmptyStateActions } from './QuillInsightEmptyStateActions'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -94,6 +97,7 @@ export function InsightEmptyState({
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const quillSurface = useQuillSurface()
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -122,6 +126,24 @@ export function InsightEmptyState({
 
     heading = heading ?? 'There are no matching events for this query'
     detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
+
+    if (quillSurface) {
+        return (
+            <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
+                <EmptyHeader>
+                    <IconStack>
+                        <IconStackItem color="var(--color-product-product-analytics-light)">
+                            {iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : <IconArchive />)}
+                        </IconStackItem>
+                    </IconStack>
+                    <EmptyTitle>{heading}</EmptyTitle>
+                    {detail && <EmptyDescription>{detail}</EmptyDescription>}
+                </EmptyHeader>
+                {!hasCustomCopy && <QuillInsightEmptyStateActions />}
+            </Empty>
+        )
+    }
+
     const icon =
         iconProp ??
         (isChristmas() ? (
