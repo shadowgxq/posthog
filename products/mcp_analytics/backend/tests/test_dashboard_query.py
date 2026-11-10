@@ -54,7 +54,7 @@ from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWa
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 
 from products.mcp_analytics.backend.facade.api import invalidate_custom_harness_rules
-from products.mcp_analytics.backend.hogql_queries.dashboard_query import MCPDashboardQueryRunner
+from products.mcp_analytics.backend.hogql_queries.dashboard_query import LEAN_DATABASE_FLAG, MCPDashboardQueryRunner
 from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -359,6 +359,27 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
             self._run(sections, runner) if entry_point == "run" else runner.calculate()
 
         assert build.call_count == 1
+
+    def test_the_lean_database_flag_gives_every_section_the_same_rows_without_building_the_full_catalog(self) -> None:
+        self._seed()
+        with self.captureOnCommitCallbacks(execute=True):
+            MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="codex")
+            invalidate_custom_harness_rules(self.team)
+        sections = list(MCPDashboardSection)
+        recompute = {"execution_mode": ExecutionMode.CALCULATE_BLOCKING_ALWAYS}
+        full = self._run(sections, **recompute)
+        create_for = Database.create_for
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == LEAN_DATABASE_FLAG),
+            patch.object(Database, "create_for", side_effect=create_for) as full_catalog_build,
+        ):
+            lean = self._run(sections, **recompute)
+
+        assert full_catalog_build.call_count == 0
+        assert "Acme Agent" in json.dumps(self._rows(lean, MCPDashboardSection.HARNESS_ROWS))
+        for section in sections:
+            assert self._rows(lean, section) == self._rows(full, section), section
 
     def test_a_failed_section_leaves_the_others_and_stays_uncached(self) -> None:
         self._seed()
