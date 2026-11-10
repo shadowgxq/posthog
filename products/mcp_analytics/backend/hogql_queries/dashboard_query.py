@@ -281,6 +281,8 @@ TYPED_SECTIONS: dict[MCPDashboardSection, TypedSection] = {
 
 GENERIC_SECTION_ERROR = "This section could not be loaded."
 LEAN_DATABASE_FLAG = "mcp-analytics-dashboard-lean-database"
+# The filter types whose rows the lean database resolves the same as the full one.
+LEAN_DATABASE_FILTER_TYPES = frozenset({"event", "person", "session", "cohort", "group"})
 
 
 def public_error(error: Exception) -> str:
@@ -346,11 +348,22 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
 
     @property
     def shared_database(self) -> Database:
-        # A batch's sections build the database once between them, and only when one misses the cache.
-        return self._batch.shared_database if self._batch else super().shared_database
+        batch = self._batch
+        if batch is None or not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            return super().shared_database
+        # A batch's sections build the database once between them, and only when one misses the cache. The section
+        # that builds it measures the build, so the build reaches that section's `query executed` event.
+        with batch._shared_database_build_lock:
+            if batch._shared_database is None:
+                batch._shared_database = super().shared_database
+        return batch._shared_database
+
+    def _on_user_changed(self) -> None:
+        self.__dict__.pop("_lean_database", None)
+        super()._on_user_changed()
 
     def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
-        if not self._lean_database_enabled():
+        if not self._lean_database:
             return super()._create_database(timings=timings, trigger=trigger)
         # Every section reads only built-in tables, so it skips the warehouse catalog that create_for loads.
         return Database.create_for_posthog_tables(
@@ -361,7 +374,23 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
             mcp_custom_harness_rules=custom_harness_rules(self.team),
         )
 
-    def _lean_database_enabled(self) -> bool:
+    @cached_property
+    def _lean_database(self) -> bool:
+        if self._batch is not None:
+            return self._batch._lean_database
+        return self._filters_fit_lean_database() and self._lean_database_flag_enabled()
+
+    def _filters_fit_lean_database(self) -> bool:
+        filters = [prop.model_dump() for prop in self.query.properties or []]
+        if self.query.filterTestAccounts:
+            filters += self.team.test_account_filters or []
+        # Revenue `$virt_` properties resolve through warehouse views the lean database lacks, and read as null there.
+        return all(
+            prop.get("type") in LEAN_DATABASE_FILTER_TYPES and not str(prop.get("key", "")).startswith("$virt_")
+            for prop in filters
+        )
+
+    def _lean_database_flag_enabled(self) -> bool:
         distinct_id = (self.user and self.user.distinct_id) or str(self.team.uuid)
         try:
             return bool(
@@ -386,6 +415,9 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
         # so the others keep their entries across page loads.
         if COMPARISON_SECTIONS.isdisjoint(self._sections):
             payload["query"].pop("comparison")
+        # Keeps rows built on the lean database apart, so turning the flag off never serves them.
+        if self._lean_database:
+            payload["lean_database"] = True
         return payload
 
     @cached_property
