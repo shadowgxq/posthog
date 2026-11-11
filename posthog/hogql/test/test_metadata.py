@@ -442,6 +442,30 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 move_message=flag_called_fails_after_move_warning("it uses SAMPLE"),
             ),
             param(
+                "ratio_sample_read_by_the_union_after_the_move",
+                "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+            ),
+            param(
+                "row_count_sample_fails_after_the_move_with_the_union",
+                "SELECT count() FROM events SAMPLE 1000 WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+                move_message=flag_called_fails_after_move_warning("it uses SAMPLE"),
+            ),
+            (
+                "select_star_in_an_outer_query_leaves_a_subquery_literal_alone",
+                "SELECT * FROM events WHERE event = '$pageview' AND distinct_id IN "
+                "(SELECT distinct_id FROM events WHERE event = '$feature_flag_called')",
+                True,
+                1,
+            ),
+            param(
                 "select_star_in_a_subquery_fails_after_the_move",
                 "SELECT count() FROM (SELECT * FROM events WHERE event = '$feature_flag_called')",
                 True,

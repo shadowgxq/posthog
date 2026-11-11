@@ -20,7 +20,7 @@ const RELATIVE_DATE_PATTERN = /^-(\d+)([hdwm])$/
 export type FlagCallCriterionProblem = 'type' | 'window' | 'filters'
 
 /** What happens to a criterion with each problem once PostHog stops writing flag calls to the events table. */
-export const FLAG_CALL_PROBLEM_EFFECTS: Record<FlagCallCriterionProblem, string> = {
+const FLAG_CALL_PROBLEM_EFFECTS: Record<FlagCallCriterionProblem, string> = {
     type: 'this criterion stops matching new flag calls. To keep it matching, change it to "Completed event", "Did not complete event" or "Completed an event multiple times".',
     window: `this criterion misses some flag calls. To count them all, use a range relative to today that goes back ${MAX_LOOKBACK_DAYS} days or less, such as "Last 30 days".`,
     filters:
@@ -49,10 +49,15 @@ export function flagCallCriterionProblem(criteria: AnyCohortCriteriaType): FlagC
 }
 
 /** The step of the move that the problem follows from, in the words of the troubleshooting doc. */
-export function flagCallMoveLeadIn(writesStopped: boolean): string {
+function flagCallMoveLeadIn(writesStopped: boolean): string {
     return writesStopped
         ? 'PostHog no longer writes flag calls to the events table, so'
         : 'Once PostHog stops writing flag calls to the events table,'
+}
+
+/** What happens to a criterion with this problem, and how to fix it. `writesStopped` picks the step of the move. */
+export function flagCallProblemText(problem: FlagCallCriterionProblem, writesStopped: boolean): string {
+    return `${flagCallMoveLeadIn(writesStopped)} ${FLAG_CALL_PROBLEM_EFFECTS[problem]}`
 }
 
 /** The problem to warn about when the criterion names one of the events that are moving, or null. */

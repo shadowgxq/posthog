@@ -16,7 +16,8 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 
-# The copy names the two steps of the move as the troubleshooting doc that the "Learn more" link opens names them.
+# The copy describes the move the way the troubleshooting doc that the "Learn more" link opens does. First, PostHog
+# reads flag calls from posthog.flag_evaluations. Then it stops writing them to the events table.
 FLAG_CALLED_ON_EVENTS_NOTICE = (
     f"Once PostHog stops writing flag calls to the events table, this query reads {FLAG_CALLED_EVENT} events from "
     "posthog.flag_evaluations, which keeps the last 90 days of flag calls. If part of the query can't read that "
@@ -118,10 +119,10 @@ def count_flag_calls_read_from_events(resolved: ast.AST) -> int:
     return len(finder.literals)
 
 
-def flag_called_on_events_warnings(
+def flag_called_on_events_notices(
     node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
 ) -> list[HogQLNotice]:
-    """A warning on each `$feature_flag_called` literal that a query compares to the events table's `event` column.
+    """A notice on each `$feature_flag_called` literal that a query compares to the events table's `event` column.
 
     The query resolves on a clone, because the printed AST has been rewritten and its offsets no longer match
     what the user typed.

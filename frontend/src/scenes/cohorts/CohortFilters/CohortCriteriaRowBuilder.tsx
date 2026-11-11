@@ -22,12 +22,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
-import {
-    FLAG_CALL_PROBLEM_EFFECTS,
-    flagCallMoveLeadIn,
-    FlagCallCriterionProblem,
-    moveNoticeProblem,
-} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+import { flagCallProblemText, moveNoticeProblem } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -38,10 +33,6 @@ export interface CohortCriteriaRowBuilderProps {
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
-}
-
-function moveNoticeText(problem: FlagCallCriterionProblem): string {
-    return `${flagCallMoveLeadIn(false)} ${FLAG_CALL_PROBLEM_EFFECTS[problem]}`
 }
 
 export function CohortCriteriaRowBuilder({
@@ -201,7 +192,7 @@ export function CohortCriteriaRowBuilder({
                                     : undefined
                             }
                         >
-                            {moveNoticeText(flagCallProblem)}
+                            {flagCallProblemText(flagCallProblem, false)}
                         </LemonBanner>
                     )}
                 </>

@@ -60,11 +60,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
-import {
-    FLAG_CALL_PROBLEM_EFFECTS,
-    cohortFlagCallProblem,
-    flagCallMoveLeadIn,
-} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+import { cohortFlagCallProblem, flagCallProblemText } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 import {
@@ -840,9 +836,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     <SceneDivider />
                                     {!isNewCohort && flagCallProblem !== null && (
                                         <FlagCalledRebuildBanner artifactType="cohort">
-                                            A criterion on Feature flag called needs a change.{' '}
-                                            {flagCallMoveLeadIn(storesFlagCallsOutsideEvents(currentTeam))}{' '}
-                                            {FLAG_CALL_PROBLEM_EFFECTS[flagCallProblem]}
+                                            {`A criterion on Feature flag called needs a change. ${flagCallProblemText(
+                                                flagCallProblem,
+                                                storesFlagCallsOutsideEvents(currentTeam)
+                                            )}`}
                                         </FlagCalledRebuildBanner>
                                     )}
                                     {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
