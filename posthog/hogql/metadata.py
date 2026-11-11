@@ -399,7 +399,7 @@ def _flag_called_notices(
             else:
                 if refusals is None:
                     # Once events gets no flag calls, the swap raises for each query that this finds.
-                    refusals = flag_called_move_refusals(hogql_ast, ratio_sample_ok=union_applies(context))
+                    refusals = flag_called_move_refusals(hogql_ast, union_on=union_applies(context))
                 if span in refusals:
                     move_warnings.append(candidate.model_copy(update={"message": refusals[span], "url": url}))
                 else:

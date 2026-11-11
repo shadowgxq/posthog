@@ -554,6 +554,44 @@ def _flag_call_finder(node: ast.SelectQuery, scan: EventsScan, aliases: "_Aliase
     return finder
 
 
+@frozen
+class FlagEvaluationsOnlyRead:
+    """How a query reads one events scan that names flag calls once flag calls are only in flag_evaluations."""
+
+    scan: EventsScan
+    literals: list[ast.Constant]
+    # Why resolution raises for this scan, or None when the swap or the union reads it.
+    refusal: str | None
+
+
+def flag_evaluations_only_reads(
+    node: ast.SelectQuery, ctes: frozenset[str], union_on: bool
+) -> list[FlagEvaluationsOnlyRead]:
+    """How mode 2 reads each events scan of `node` that names flag calls, from the query text alone. The swap moves a
+    scan whose filters pin `event` to flag calls, or refuses its shape. The union reads every other scan when
+    `union_on`, or refuses it. A scan that neither reads stays on events and is left out."""
+    aliases = _Aliases(node)
+    conjuncts = filter_conjuncts(node)
+    if aliases.aliases:
+        conjuncts = [aliases.visit(conjunct) for conjunct in conjuncts]
+    reads: list[FlagEvaluationsOnlyRead] = []
+    for found in _flag_call_scans(node, lambda: True, ctes, aliases):
+        scan, position = found.scan, found.position
+        sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
+        # The union reads a sampled first scan before the swap sees it. The swap moves a joined scan that the union
+        # refused.
+        if scan.pins_flag_calls(conjuncts, needs_flag_key=False) and not (union_on and sampled and position == 0):
+            refusal = scan.shape_refusal(node)
+        elif union_on:
+            refusal = _union_refusal(node, scan, position)
+            if refusal is not None and found.unchecked:
+                refusal = "it compares `event` with more values than the flag-call check reads"
+        else:
+            continue
+        reads.append(FlagEvaluationsOnlyRead(scan=scan, literals=found.literals, refusal=refusal))
+    return reads
+
+
 class _Aliases(CloningVisitor):
     """Copies an unresolved expression with each name of a select alias that names a field replaced by that field.
 

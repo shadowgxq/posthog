@@ -583,6 +583,33 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 move_message=_GOE_PROPERTIES_FAILS,
             ),
             param(
+                "mixed_scan_with_a_join_the_union_refuses",
+                "SELECT count() FROM events AS e RIGHT JOIN persons AS p ON e.person_id = p.id "
+                "WHERE e.event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+                move_message=flag_called_fails_after_move_warning("it joins another table to events with RIGHT JOIN"),
+            ),
+            param(
+                "mixed_scan_joined_after_another_table",
+                "SELECT count() FROM persons AS p JOIN events AS e ON e.person_id = p.id "
+                "WHERE e.event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+                move_message=flag_called_fails_after_move_warning("it joins events after another table"),
+            ),
+            param(
+                "missing_field_on_another_scan_leaves_the_flag_call_scan_alone",
+                "SELECT e.goe_0.properties FROM events AS e JOIN events AS f ON e.distinct_id = f.distinct_id "
+                "WHERE e.event = '$pageview' AND f.event = '$feature_flag_called'",
+                True,
+                1,
+            ),
+            param(
                 "mixed_scan_with_the_union_off",
                 "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
                 True,
