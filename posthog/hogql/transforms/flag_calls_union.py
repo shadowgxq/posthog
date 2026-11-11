@@ -53,7 +53,6 @@ from posthog.hogql.restricted_properties import key_read_overlaps_restriction, r
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES, SelectAliasInliner
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EVENTS_NAMES,
-    UNMOVABLE_SHAPE,
     EventsScan,
     ScanVisitor,
     SyntaxVisitor,
@@ -64,6 +63,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     filter_conjuncts,
     flag_calls_only_in_flag_evaluations_error,
     flag_key_predicate,
+    joined_scan_refusal,
     names_flag_called_event,
     point_scan_at,
     ratio_sample_fraction,
@@ -627,22 +627,17 @@ class FlagEvaluationsOnlyRead:
     refusal: str | None
 
 
-def flag_evaluations_only_reads(
-    node: ast.SelectQuery, ctes: frozenset[str], union_on: bool
+def _flag_evaluations_only_reads(
+    node: ast.SelectQuery, ctes: Mapping[str, ast.CTE], with_values: "_WithValues", union_on: bool
 ) -> list[FlagEvaluationsOnlyRead]:
-    """How mode 2 reads each events scan of `node` that names flag calls, from the query text alone. The swap moves a
-    scan whose filters pin `event` to flag calls, or refuses its shape. The union reads every other scan when
-    `union_on`, or refuses it. A scan that neither reads stays on events and is left out."""
     aliases = _Aliases(node)
     reads: list[FlagEvaluationsOnlyRead] = []
-    for found in _flag_call_scans(node, lambda: True, ctes, aliases):
+    for found in _flag_call_scans(node, lambda: True, ctes, aliases, with_values):
         scan, position = found.scan, found.position
         # The union reads a sampled first scan before the swap sees it. The swap moves a joined scan that the union
         # refused.
         if _swap_takes(node, scan, aliases, union_reads_samples=union_on and position == 0):
-            # The swap moves a scan joined after another table only when the query names it `events`.
-            named_events = isinstance(scan.join.table, ast.Field) and scan.join.table.chain == ["events"]
-            refusal = scan.shape_refusal(node) if position == 0 or named_events else UNMOVABLE_SHAPE
+            refusal = (joined_scan_refusal(scan.join) if position > 0 else None) or scan.shape_refusal(node)
         elif union_on:
             refusal = _union_refusal(node, found)
         else:
@@ -1083,23 +1078,12 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
                     self.literals.append(named)
 
 
-class _UnionRenamer(ScanVisitor):
-    def __init__(
-        self,
-        flag_key_compares_as_string: Callable[[], bool],
-        only_in_flag_evaluations: bool,
-        *,
-        rename_flag_only_scans: bool = False,
-    ) -> None:
+class _WithValuesScanVisitor(ScanVisitor):
+    """A ScanVisitor that keeps `with_values` in step with the column CTEs in scope, as `_flag_call_scans` needs."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self.flag_key_compares_as_string = flag_key_compares_as_string
-        self.only_in_flag_evaluations = only_in_flag_evaluations
-        self.rename_flag_only_scans = rename_flag_only_scans
-        self.renamed = False
-        self.refusals: list[UnionRefusal] = []
         self.with_values = _WithValues()
-        self.literal_spans: set[tuple[int, int]] = set()
-        self.spanned_with_values: set[int] = set()
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         initial = node.initial_select_query
@@ -1119,6 +1103,43 @@ class _UnionRenamer(ScanVisitor):
             yield
         finally:
             self.with_values.cte_in_scope_names_flag_calls = outer
+
+
+class FlagEvaluationsOnlyReadVisitor(_WithValuesScanVisitor):
+    """Calls `visit_flag_evaluations_only_reads` for each SELECT with how mode 2 reads its events scans that name flag
+    calls, from the query text alone. The swap moves a scan whose filters pin `event` to flag calls, or refuses its
+    shape. The union reads every other scan when `union_on`, or refuses it. A scan that neither reads stays on events
+    and is left out."""
+
+    def __init__(self, union_on: bool) -> None:
+        super().__init__()
+        self.union_on = union_on
+
+    def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        self.visit_flag_evaluations_only_reads(
+            _flag_evaluations_only_reads(node, self.ctes, self.with_values, self.union_on)
+        )
+
+    def visit_flag_evaluations_only_reads(self, reads: list[FlagEvaluationsOnlyRead]) -> None:
+        raise NotImplementedError
+
+
+class _UnionRenamer(_WithValuesScanVisitor):
+    def __init__(
+        self,
+        flag_key_compares_as_string: Callable[[], bool],
+        only_in_flag_evaluations: bool,
+        *,
+        rename_flag_only_scans: bool = False,
+    ) -> None:
+        super().__init__()
+        self.flag_key_compares_as_string = flag_key_compares_as_string
+        self.only_in_flag_evaluations = only_in_flag_evaluations
+        self.rename_flag_only_scans = rename_flag_only_scans
+        self.renamed = False
+        self.refusals: list[UnionRefusal] = []
+        self.literal_spans: set[tuple[int, int]] = set()
+        self.spanned_with_values: set[int] = set()
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         aliases = _Aliases(node)

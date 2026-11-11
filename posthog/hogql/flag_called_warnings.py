@@ -11,8 +11,8 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsScan, ScanVisitor
-from posthog.hogql.transforms.flag_calls_union import flag_evaluations_only_reads
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsScan
+from posthog.hogql.transforms.flag_calls_union import FlagEvaluationsOnlyRead, FlagEvaluationsOnlyReadVisitor
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -183,10 +183,9 @@ class _ScanCheck:
     warning: str | None
 
 
-class _MoveRefusalFinder(ScanVisitor):
+class _MoveRefusalFinder(FlagEvaluationsOnlyReadVisitor):
     def __init__(self, union_on: bool) -> None:
-        super().__init__()
-        self.union_on = union_on
+        super().__init__(union_on)
         # The checks of the scans in each enclosing SELECT, innermost last.
         self.frames: list[list[_ScanCheck]] = []
         self.refusals: dict[LiteralSpan, str] = {}
@@ -198,8 +197,8 @@ class _MoveRefusalFinder(ScanVisitor):
             if check.warning is not None:
                 self.refusals.update(dict.fromkeys(check.literals, check.warning))
 
-    def visit_scan_query(self, node: ast.SelectQuery) -> None:
-        for read in flag_evaluations_only_reads(node, self.ctes, self.union_on):
+    def visit_flag_evaluations_only_reads(self, reads: list[FlagEvaluationsOnlyRead]) -> None:
+        for read in reads:
             literals = [
                 LiteralSpan(start=literal.start, end=literal.end)
                 for literal in read.literals

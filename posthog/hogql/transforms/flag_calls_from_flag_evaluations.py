@@ -1116,8 +1116,8 @@ class _EventsScanSwapper(ScanVisitor):
         if chain in (["posthog", "flag_evaluations"], ["posthog", "events_with_flag_calls"]):
             # The syntactic rules, the union rename, or an earlier resolved join from the same source already moved it.
             return None
-        if chain != ["events"]:
-            return UNMOVABLE_SHAPE
+        if (refusal := joined_scan_refusal(clone.join)) is not None:
+            return refusal
         events_scan = EventsScan(
             join=clone.join,
             alias=clone.join.alias or "events",
@@ -1157,6 +1157,12 @@ def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
 
 def _table_chain(join: ast.JoinExpr) -> list[str | int] | None:
     return join.table.chain if isinstance(join.table, ast.Field) else None
+
+
+def joined_scan_refusal(join: ast.JoinExpr) -> str | None:
+    """Why the swap cannot move an events scan joined after another table whatever its shape, or None. The swap
+    moves only a joined scan that the query names `events`."""
+    return None if _table_chain(join) == ["events"] else UNMOVABLE_SHAPE
 
 
 def _joins(node: ast.AST) -> list[tuple[ast.SelectQuery, ast.JoinExpr]]:
