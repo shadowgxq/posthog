@@ -210,12 +210,15 @@ def _assemble_series(
     by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
     fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
     bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
+    layouts_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], int] = {}
     for row in rows:
         key = (tuple(sorted(row["labels"].items())), row.get("series_key"))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
         fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
         if "histogram_bounds" in row:
             bounds_by_labels.setdefault(key, set()).update(row["histogram_bounds"])
+        if "histogram_layout_count" in row:
+            layouts_by_labels[key] = max(layouts_by_labels.get(key, 0), row["histogram_layout_count"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -237,6 +240,7 @@ def _assemble_series(
                 clause,
             ),
             histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
+            histogram_layout_count=layouts_by_labels.get(key),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
