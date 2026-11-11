@@ -1767,7 +1767,22 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # The chart reads the edges to tell how coarse the estimate is.
         self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
 
-    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self):
+    @parameterized.expand(
+        [
+            ("single_query", {"metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}, 1),
+            (
+                "formula",
+                {
+                    "clauses": [
+                        {"name": "a", "metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}
+                    ],
+                    "formula": "a * 1000",
+                },
+                1000,
+            ),
+        ]
+    )
+    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self, _name, query, scale):
         # Two workloads export one histogram name with different buckets. The coarse layout
         # holds 0.7% of observations above 8.1, and the fine one holds 1% of them, all below 0.5.
         self._seed_histogram(
@@ -1783,9 +1798,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/metrics/query",
             data={
                 "query": {
-                    "metricName": "latency",
-                    "aggregation": "histogram_quantile",
-                    "quantile": 0.99,
+                    **query,
                     "interval": "minute",
                     "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
                     "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
@@ -1799,7 +1812,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         [point] = series["points"]
         # Summing the two layouts by le, as PromQL does, leaves the fine layout out of every bucket from
         # 0.9 up and puts p99 in +Inf, read as 75. Merged by width, 1003 of 1010 are at or below 8.1.
-        self.assertAlmostEqual(point["value"], 2.7 + 5.4 * 2.9 / 6)
+        self.assertAlmostEqual(point["value"], (2.7 + 5.4 * 2.9 / 6) * scale)
         self.assertEqual(series["histogram_layout_count"], 2)
         self.assertIn("2 bucket layouts", response.json()["hint"])
 
