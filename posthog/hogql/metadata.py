@@ -39,7 +39,6 @@ from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
     FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING,
-    FLAG_CALLED_ON_EVENTS_NOTICE,
     FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     LiteralSpan,
     flag_called_move_refusals,
@@ -60,6 +59,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
+from posthog.hogql.transforms.flag_calls_union import union_applies
 from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -382,8 +382,7 @@ def _flag_called_notices(
         both_tables_message = (
             FLAG_CALLED_FROM_BOTH_TABLES_NOTICE if only_in_flag_evaluations else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
         )
-        # Once events gets no flag calls, the swap raises for each query that this finds.
-        refusals = {} if only_in_flag_evaluations else flag_called_move_refusals(hogql_ast)
+        refusals: dict[LiteralSpan, str] | None = None
         for warning in warnings:
             span = LiteralSpan(start=warning.start, end=warning.end)
             if span in swapped:
@@ -396,12 +395,14 @@ def _flag_called_notices(
                 move_warnings.append(
                     warning.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING, "url": url})
                 )
-            elif span in refusals:
-                move_warnings.append(warning.model_copy(update={"message": refusals[span], "url": url}))
             else:
-                on_events_notices.append(
-                    warning.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_NOTICE, "url": url})
-                )
+                if refusals is None:
+                    # Once events gets no flag calls, the swap raises for each query that this finds.
+                    refusals = flag_called_move_refusals(hogql_ast, ratio_sample_ok=union_applies(context))
+                if span in refusals:
+                    move_warnings.append(warning.model_copy(update={"message": refusals[span], "url": url}))
+                else:
+                    on_events_notices.append(warning.model_copy(update={"url": url}))
         return _FlagCalledNotices(
             move_warnings=tuple(move_warnings),
             on_events_notices=tuple(on_events_notices),

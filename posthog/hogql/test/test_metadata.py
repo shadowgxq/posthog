@@ -449,6 +449,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 move_message=flag_called_fails_after_move_warning("it selects * or COLUMNS(...)"),
             ),
             param(
+                "select_star_in_a_cte_named_events_fails_after_the_move",
+                "WITH events AS (SELECT * FROM events WHERE event = '$feature_flag_called') SELECT count() FROM events",
+                True,
+                1,
+                move_message=flag_called_fails_after_move_warning("it selects * or COLUMNS(...)"),
+            ),
+            param(
                 "event_time_group_properties_fail_after_the_move",
                 "SELECT goe_0.properties FROM events WHERE event = '$feature_flag_called'",
                 True,

@@ -1,4 +1,4 @@
-import re
+import functools
 from dataclasses import dataclass, field
 
 from posthog.schema import HogQLNotice
@@ -6,12 +6,12 @@ from posthog.schema import HogQLNotice
 from posthog.hogql import ast
 from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table
+from posthog.hogql.database.models import FieldOrTable, Table, VirtualTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsScan
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsScan, ScanVisitor
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -158,56 +158,75 @@ def flag_called_spans_read_from_union(context: HogQLContext) -> set[LiteralSpan]
     return {LiteralSpan(start=start, end=end) for start, end in context.flag_called_union_spans}
 
 
-_GROUP_ON_EVENTS = re.compile(r"goe_\d+")
+@functools.cache
+def _flag_evaluations_fields() -> dict[str, FieldOrTable]:
+    return FlagEvaluationsTable().fields
+
+
+def _missing_field(chain: list[str | int]) -> str | None:
+    """The name of the field that `chain`, a read of the events scan, takes from a flag_evaluations sub-table that
+    lacks it, such as `goe_0.properties`, or None."""
+    if len(chain) < 2:
+        return None
+    sub_table = _flag_evaluations_fields().get(str(chain[0]))
+    if isinstance(sub_table, VirtualTable) and str(chain[1]) not in sub_table.fields:
+        return f"{chain[0]}.{chain[1]}"
+    return None
 
 
 @dataclass(frozen=False)
 class _SelectFrame:
-    scan: EventsScan | None
-    ctes: frozenset[str]
-    warning: str | None
+    scan: EventsScan | None = None
+    warning: str | None = None
     literals: list[LiteralSpan] = field(default_factory=list)
 
 
-class _MoveRefusalFinder(TraversingVisitor):
-    def __init__(self) -> None:
+class _MoveRefusalFinder(ScanVisitor):
+    def __init__(self, ratio_sample_ok: bool) -> None:
         super().__init__()
+        self.ratio_sample_ok = ratio_sample_ok
         self.frames: list[_SelectFrame] = []
         self.refusals: dict[LiteralSpan, str] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        ctes = (self.frames[-1].ctes if self.frames else frozenset()).union(node.ctes or ())
-        scan = EventsScan.of(node, lambda: True, ctes)
-        reason = scan.shape_refusal(node) if scan else None
-        warning = flag_called_fails_after_move_warning(reason) if reason else None
-        self.frames.append(_SelectFrame(scan=scan, ctes=ctes, warning=warning))
+        self.frames.append(_SelectFrame())
         super().visit_select_query(node)
         frame = self.frames.pop()
         if frame.warning is not None:
             self.refusals.update(dict.fromkeys(frame.literals, frame.warning))
+
+    def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        frame = self.frames[-1]
+        frame.scan = EventsScan.of(node, lambda: True, self.ctes)
+        reason = frame.scan.shape_refusal(node, ratio_sample_ok=self.ratio_sample_ok) if frame.scan else None
+        if reason is not None:
+            frame.warning = flag_called_fails_after_move_warning(reason)
 
     def visit_field(self, node: ast.Field) -> None:
         frame = self.frames[-1] if self.frames else None
         if frame is None or frame.scan is None or frame.warning is not None:
             return
         chain = frame.scan.column(node)
-        # flag_evaluations has goe_N.key and no other goe_N field.
-        if chain and len(chain) > 1 and _GROUP_ON_EVENTS.fullmatch(str(chain[0])) and chain[1] != "key":
-            frame.warning = flag_called_missing_field_warning(f"{chain[0]}.{chain[1]}")
+        missing = _missing_field(chain) if chain else None
+        if missing is not None:
+            frame.warning = flag_called_missing_field_warning(missing)
 
     def visit_constant(self, node: ast.Constant) -> None:
         if self.frames and node.value == FLAG_CALLED_EVENT and node.start is not None and node.end is not None:
             self.frames[-1].literals.append(LiteralSpan(start=node.start, end=node.end))
 
 
-def flag_called_move_refusals(node: ast.SelectQuery | ast.SelectSetQuery) -> dict[LiteralSpan, str]:
+def flag_called_move_refusals(
+    node: ast.SelectQuery | ast.SelectSetQuery, *, ratio_sample_ok: bool
+) -> dict[LiteralSpan, str]:
     """The warning for each `$feature_flag_called` literal whose query fails once flag calls are only in
-    posthog.flag_evaluations, keyed by the literal's span.
+    posthog.flag_evaluations, keyed by the literal's span. With `ratio_sample_ok`, a ratio SAMPLE does not count,
+    because the union reads it.
 
-    It reads only the text of the unresolved query. It finds the shapes that the swap refuses and the `goe_N` fields
-    that flag_evaluations lacks. It misses a refusal that only resolution shows, such as a name that binds to another
-    column in flag_evaluations.
+    It reads only the text of the unresolved query. It finds the shapes that the swap refuses and the sub-table
+    fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a refusal that only resolution shows,
+    such as a name that binds to another column in flag_evaluations.
     """
-    finder = _MoveRefusalFinder()
+    finder = _MoveRefusalFinder(ratio_sample_ok)
     finder.visit(node)
     return finder.refusals
