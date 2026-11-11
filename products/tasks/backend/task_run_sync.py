@@ -296,6 +296,7 @@ def transition(
     detail: str | None = None,
     expected: str | None = None,
     run_id: UUID | None = None,
+    only_if: Q | None = None,
 ) -> bool:
     if reason not in REASONS[to]:
         raise ValueError(f"{reason} is not a reason for {to}")
@@ -304,6 +305,8 @@ def transition(
         if stored is None or stored.value is None or to not in TRANSITIONS[stored.value.status]:
             return False
         if expected is not None and stored.value.status != expected:
+            return False
+        if only_if is not None and not Task.objects.filter(only_if, pk=task_id).exists():
             return False
         if run_id is not None and (latest := _latest_run(task_id)) is not None and latest.id != run_id:
             return False
@@ -314,7 +317,13 @@ def transition(
 
 
 def mark_done(
-    task_id: UUID | str, *, reason: str, actor: str, run_id: UUID | None = None, expected: str | None = None
+    task_id: UUID | str,
+    *,
+    reason: str,
+    actor: str,
+    run_id: UUID | None = None,
+    expected: str | None = None,
+    only_if: Q | None = None,
 ) -> bool:
     stored = _stored_task_status(task_id, lock=False)
     if stored is None or stored.value is None:
@@ -326,6 +335,8 @@ def mark_done(
     if mode == DoneMode.SHADOW:
         current = stored.value.status
         if Task.Status.DONE not in TRANSITIONS[current] or (expected is not None and current != expected):
+            return False
+        if only_if is not None and not Task.objects.filter(only_if, pk=task_id).exists():
             return False
         if latest_change_is_shadow_done(stored.team_id, task_id):
             return False
@@ -339,7 +350,9 @@ def mark_done(
         observe_task_done(profile=profile, reason=reason, mode=mode)
         logger.info("task_would_mark_done", task_id=str(task_id), profile=stored.profile, reason=reason, actor=actor)
         return False
-    moved = transition(task_id, Task.Status.DONE, reason=reason, actor=actor, run_id=run_id, expected=expected)
+    moved = transition(
+        task_id, Task.Status.DONE, reason=reason, actor=actor, run_id=run_id, expected=expected, only_if=only_if
+    )
     if moved:
         observe_task_done(profile=profile, reason=reason, mode=mode)
     return moved
