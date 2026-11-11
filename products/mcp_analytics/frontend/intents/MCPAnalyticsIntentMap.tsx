@@ -26,7 +26,7 @@ export const scene: SceneExport = {
 
 export function MCPAnalyticsIntentMap(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tool, topicId, dateFilter, dateRangeLabel, isZoomed } = useValues(intentMapLogic)
+    const { tool, topicId, dateFilter, isZoomed } = useValues(intentMapLogic)
     const { setTool, setTopicId, setDateFilter, setZoom } = useActions(intentMapLogic)
 
     if (!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
@@ -56,7 +56,6 @@ export function MCPAnalyticsIntentMap(): JSX.Element {
                     onChange={setDateFilter}
                     dataAttr="mcp-intent-map-date"
                 />
-                <span className="text-xs text-secondary">{dateRangeLabel}</span>
                 {tool ? (
                     <LemonTag type="highlight" closable onClose={() => setTool(null)}>
                         Tool: <span translate="no">{tool}</span>

@@ -1,4 +1,4 @@
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
@@ -20,9 +20,11 @@ interface MapLinkContext {
     dateTo: string | null
 }
 
-const BAND_LABEL: Record<string, { label: string; tagType: 'success' | 'warning' | 'danger' }> = {
-    consolidated: { label: 'Consolidated', tagType: 'success' },
-    mixed: { label: 'Mixed', tagType: 'warning' },
+// success and warning tags have no fill, and their text is too faint to read on a light card, so the bands use
+// tag types that keep the contrast.
+export const BAND_LABEL: Record<string, { label: string; tagType: LemonTagType }> = {
+    consolidated: { label: 'Consolidated', tagType: 'info' },
+    mixed: { label: 'Mixed', tagType: 'default' },
     spread: { label: 'Spread', tagType: 'danger' },
 }
 

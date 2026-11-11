@@ -87,7 +87,7 @@ export function TopicPanel(): JSX.Element {
                                             {point.tool}
                                         </LinkPrimitive>
                                     ) : null}
-                                    {point.is_outlier ? <LemonTag type="warning">outlier</LemonTag> : null}
+                                    {point.is_outlier ? <LemonTag type="completion">outlier</LemonTag> : null}
                                 </div>
                             </li>
                         ))
