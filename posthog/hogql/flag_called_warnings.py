@@ -220,7 +220,8 @@ class _MoveRefusalFinder(ScanVisitor):
 
 def flag_called_move_refusals(node: ast.SelectQuery | ast.SelectSetQuery, *, union_on: bool) -> dict[LiteralSpan, str]:
     """The warning for each `$feature_flag_called` literal whose query fails once flag calls are only in
-    posthog.flag_evaluations, keyed by the literal's span. `union_on` says whether the union reads mixed scans.
+    posthog.flag_evaluations, keyed by the literal's span. `union_on` says whether the union reads the scans that the
+    swap leaves, such as one filtered with `event IN ('$pageview', '$feature_flag_called')` or a sampled flag-call scan.
 
     It reads only the text of the unresolved query. It finds the shapes that the swap and the union refuse and the
     sub-table fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a refusal that only

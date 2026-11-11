@@ -50,6 +50,7 @@ from posthog.hogql.restricted_properties import key_read_overlaps_restriction, r
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES, SelectAliasInliner
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EVENTS_NAMES,
+    UNMOVABLE_SHAPE,
     EventsScan,
     ScanVisitor,
     SyntaxVisitor,
@@ -482,8 +483,9 @@ def _step_condition(expr: ast.Expr) -> ast.Expr | None:
     return None
 
 
-def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> str | None:
-    """Why the union cannot stand in for `scan`, the scan at `position` in the FROM chain of `node`, or None."""
+def _union_shape_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> str | None:
+    """Why the shape of `node` stops the union from standing in for `scan`, the scan at `position` in its FROM chain,
+    or None."""
     if position > 0:
         return "it joins events after another table"
     refusal = scan.shape_refusal(node, ratio_sample_ok=True)
@@ -506,6 +508,24 @@ class _FlagCallScan:
     literals: list[ast.Constant]
     # True when the finder stopped at the budget before it found a `$feature_flag_called` literal.
     unchecked: bool
+
+
+def _union_refusal(node: ast.SelectQuery, found: _FlagCallScan) -> str | None:
+    """Why the union cannot stand in for the scan of `found` in `node`, or None."""
+    refusal = _union_shape_refusal(node, found.scan, found.position)
+    if refusal is not None and found.unchecked:
+        return "it compares `event` with more values than the flag-call check reads"
+    return refusal
+
+
+def _swap_takes(node: ast.SelectQuery, scan: EventsScan, aliases: "_Aliases", union_reads_samples: bool) -> bool:
+    """Whether the flag_evaluations swap, not the union, handles `scan`. The swap handles a scan whose filters pin
+    `event` to flag calls. It cannot read a ratio SAMPLE, so the union reads that scan when `union_reads_samples`."""
+    sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
+    conjuncts = filter_conjuncts(node)
+    if aliases.aliases:
+        conjuncts = [aliases.visit(conjunct) for conjunct in conjuncts]
+    return scan.pins_flag_calls(conjuncts, needs_flag_key=False) and not (union_reads_samples and sampled)
 
 
 def _flag_call_scans(
@@ -571,21 +591,17 @@ def flag_evaluations_only_reads(
     scan whose filters pin `event` to flag calls, or refuses its shape. The union reads every other scan when
     `union_on`, or refuses it. A scan that neither reads stays on events and is left out."""
     aliases = _Aliases(node)
-    conjuncts = filter_conjuncts(node)
-    if aliases.aliases:
-        conjuncts = [aliases.visit(conjunct) for conjunct in conjuncts]
     reads: list[FlagEvaluationsOnlyRead] = []
     for found in _flag_call_scans(node, lambda: True, ctes, aliases):
         scan, position = found.scan, found.position
-        sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
         # The union reads a sampled first scan before the swap sees it. The swap moves a joined scan that the union
         # refused.
-        if scan.pins_flag_calls(conjuncts, needs_flag_key=False) and not (union_on and sampled and position == 0):
-            refusal = scan.shape_refusal(node)
+        if _swap_takes(node, scan, aliases, union_reads_samples=union_on and position == 0):
+            # The swap moves a scan joined after another table only when the query names it `events`.
+            named_events = isinstance(scan.join.table, ast.Field) and scan.join.table.chain == ["events"]
+            refusal = scan.shape_refusal(node) if position == 0 or named_events else UNMOVABLE_SHAPE
         elif union_on:
-            refusal = _union_refusal(node, scan, position)
-            if refusal is not None and found.unchecked:
-                refusal = "it compares `event` with more values than the flag-call check reads"
+            refusal = _union_refusal(node, found)
         else:
             continue
         reads.append(FlagEvaluationsOnlyRead(scan=scan, literals=found.literals, refusal=refusal))
@@ -929,9 +945,7 @@ class _UnionRenamer(ScanVisitor):
             position, scan, literals = found.position, found.scan, found.literals
             if position == 0 and self._left_to_the_swap(node, scan, aliases):
                 continue
-            refusal = _union_refusal(node, scan, position)
-            if refusal is not None and found.unchecked:
-                refusal = "it compares `event` with more values than the flag-call check reads"
+            refusal = _union_refusal(node, found)
             if refusal is not None:
                 self.refusals.append(UnionRefusal(join=scan.join, reason=refusal))
             else:
@@ -953,9 +967,5 @@ class _UnionRenamer(ScanVisitor):
         # twice there.
         if self.rename_flag_only_scans:
             return False
-        # The swap cannot read a sampled scan. On mode 2 the union reads it.
-        sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
-        conjuncts = filter_conjuncts(node)
-        if aliases.aliases:
-            conjuncts = [aliases.visit(conjunct) for conjunct in conjuncts]
-        return scan.pins_flag_calls(conjuncts, needs_flag_key=False) and not (self.only_in_flag_evaluations and sampled)
+        # On mode 2 the union reads a sampled scan.
+        return _swap_takes(node, scan, aliases, union_reads_samples=self.only_in_flag_evaluations)

@@ -36,6 +36,7 @@ from posthog.hogql.flag_called_warnings import (
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import UNMOVABLE_SHAPE
 
 from posthog.api.services.query import process_query_model
 from posthog.models import Team
@@ -603,6 +604,22 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 move_message=flag_called_fails_after_move_warning("it joins events after another table"),
             ),
             param(
+                "flag_call_scan_joined_after_another_table_with_a_shape_the_swap_refuses",
+                "SELECT e.goe_0.properties FROM persons AS p JOIN events AS e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called'",
+                True,
+                1,
+                move_message=_GOE_PROPERTIES_FAILS,
+            ),
+            param(
+                "flag_call_scan_joined_as_posthog_events_after_another_table",
+                "SELECT count() FROM persons AS p JOIN posthog.events AS e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called'",
+                True,
+                1,
+                move_message=flag_called_fails_after_move_warning(UNMOVABLE_SHAPE),
+            ),
+            param(
                 "missing_field_on_another_scan_leaves_the_flag_call_scan_alone",
                 "SELECT e.goe_0.properties FROM events AS e JOIN events AS f ON e.distinct_id = f.distinct_id "
                 "WHERE e.event = '$pageview' AND f.event = '$feature_flag_called'",
@@ -612,6 +629,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             param(
                 "mixed_scan_with_the_union_off",
                 "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+            param(
+                "mixed_scan_the_union_would_decline_with_the_union_off",
+                "SELECT goe_0.properties FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
                 True,
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,

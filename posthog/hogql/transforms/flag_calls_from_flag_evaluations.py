@@ -110,7 +110,7 @@ _START_OF_UNITS = {
 # behind UTC, that midnight comes before the local midnight that the rounding chose.
 _DATE_UNITS = frozenset({"Week", "Month", "Quarter", "Year"})
 
-_UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
 
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
@@ -1097,7 +1097,7 @@ class _EventsScanSwapper(ScanVisitor):
             source_clones = clones.get(id(source), []) if source is not None else []
             # The pin check above reads the filters of one SELECT. A join that several SELECTs share cannot swap.
             if not source_clones or len({id(clone.original_select) for clone in source_clones}) > 1:
-                return _UNMOVABLE_SHAPE
+                return UNMOVABLE_SHAPE
             # A query can hold one node in several places, such as one SELECT in two branches of a UNION. Cloning
             # copies each place apart, so one original join can have several clones, and each one has to swap.
             for clone in source_clones:
@@ -1112,7 +1112,7 @@ class _EventsScanSwapper(ScanVisitor):
             # The syntactic rules, the union rename, or an earlier resolved join from the same source already moved it.
             return None
         if chain != ["events"]:
-            return _UNMOVABLE_SHAPE
+            return UNMOVABLE_SHAPE
         events_scan = EventsScan(
             join=clone.join,
             alias=clone.join.alias or "events",
