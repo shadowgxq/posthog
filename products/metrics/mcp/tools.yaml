@@ -127,3 +127,5 @@ tools:
             include:
                 - results
                 - hint
+                - omitted_empty_series
+                - omitted_by_limit
